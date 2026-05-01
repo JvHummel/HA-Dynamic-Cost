@@ -1,0 +1,181 @@
+input_text:
+  dynamic_cost_import_cost_sensor:
+    name: Import Cost Source
+    icon: mdi:currency-eur
+    mode: text
+
+template:
+  - triggers:
+      - trigger: time_pattern
+        seconds: 15
+      - trigger: time_pattern
+        seconds: 45
+    sensor:
+      - name: "Throttled Daily Solar Production kWh"
+        unique_id: ThrotDailySolarProd
+        state: "{{ states('sensor.daily_solar_kwh_stable') }}"
+        unit_of_measurement: "kWh"
+  - triggers:
+      - trigger: time_pattern
+        seconds: 15
+      - trigger: time_pattern
+        seconds: 45
+    sensor:
+      - name: "Throttled P1 Import"
+        unique_id: ThrotP1Import
+        state: "{{ states('sensor.dsmr_total_import_abstraction') }}"
+        unit_of_measurement: "kWh"
+  - triggers:
+      - trigger: time_pattern
+        seconds: 15
+      - trigger: time_pattern
+        seconds: 45
+    sensor:
+      - name: "Throttled P1 Export"
+        unique_id: ThrotP1Export
+        state: "{{ states('sensor.dsmr_total_export_abstraction') }}"
+        unit_of_measurement: "kWh"
+  - triggers:
+      - trigger: time_pattern
+        seconds: 15
+      - trigger: time_pattern
+        seconds: 45
+    sensor:
+      - name: "Throttled Batteries Export"
+        unique_id: ThrotBatExport
+        state: "{{ states('sensor.battery_export_total') }}"
+        unit_of_measurement: "kWh"
+  - triggers:
+      - trigger: time_pattern
+        seconds: 15
+      - trigger: time_pattern
+        seconds: 45
+    sensor:
+      - name: "Throttled Batteries Import"
+        unique_id: ThrotBatImport
+        state: "{{ states('sensor.batterij_import_total') }}"
+        unit_of_measurement: "kWh"
+  - triggers:
+      - trigger: time_pattern
+        seconds: 10
+    sensor:
+      - name: "Delayed Import Price"
+        unique_id: DelayImportPrice
+        state: "{{ states('sensor.current_import_cost_abstraction') }}"
+        unit_of_measurement: "€/kWh"
+  - triggers:
+      - trigger: time_pattern
+        seconds: 10
+    sensor:
+      - name: "Delayed Export Price"
+        unique_id: DelayExportPrice
+        state: "{{ states('sensor.current_export_cost_abstraction') }}"
+        unit_of_measurement: "€/kWh"
+  - triggers:
+      - trigger: time_pattern
+        minutes: 0
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 59
+        seconds: 50
+    sensor:
+      - name: "Hourly Energy Used in Home"
+        unique_id: ThrotHourlyEnergyUsedinHome
+        state: "{{ states('sensor.intermediate_hourly_energy_used_in_home') }}"
+        unit_of_measurement: "kWh"
+  - triggers:
+      - trigger: time_pattern
+        minutes: 0
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 59
+        seconds: 50
+    sensor:
+      - name: "Hourly Solar Usage in Home"
+        unique_id: ThrotHourlySolarHomeUsage
+        state: "{{ states('sensor.intermediate_hourly_solar_usage_in_home') }}"
+        unit_of_measurement: "kWh"
+  - triggers:
+      - trigger: time_pattern
+        minutes: 0
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 59
+        seconds: 50
+    sensor:
+      - name: "Hourly Solar To Grid"
+        unique_id: ThrotHourlySolarToGrid
+        state: "{{ states('sensor.intermediate_hourly_solar_to_grid') }}"
+        unit_of_measurement: "kWh"
+  - triggers:
+      - trigger: time_pattern
+        minutes: 0
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 59
+        seconds: 50
+    sensor:
+      - name: "Hourly Solar to Battery"
+        unique_id: ThrotHourSolToBat
+        state: "{{ states('sensor.intermediate_hourly_solar_to_battery') }}"
+        unit_of_measurement: "kWh"
+  - triggers:
+      - trigger: time_pattern
+        minutes: 0
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 59
+        seconds: 50
+    sensor:
+      - name: "Hourly Grid To House"
+        unique_id: ThrotHourGridToHouse
+        state: "{{ states('sensor.intermediate_hourly_grid_to_house') }}"
+        unit_of_measurement: "kWh"
+  - triggers:
+      - trigger: time_pattern
+        minutes: 0
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 59
+        seconds: 50
+    sensor:
+      - name: "Hourly Grid To Battery"
+        unique_id: ThrotHourGridToBat
+        state: "{{ states('sensor.intermediate_hourly_grid_to_battery') }}"
+        unit_of_measurement: "kWh"
+  - triggers:
+      - trigger: time_pattern
+        minutes: 0
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 59
+        seconds: 50
+    sensor:
+      - name: "Hourly Battery to Battery"
+        unique_id: ThrotHourBatToBat
+        state: "{{ states('sensor.intermediate_hourly_battery_to_battery') }}"
+        unit_of_measurement: "kWh"
+  - triggers:
+      - trigger: time_pattern
+        minutes: 0
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 59
+        seconds: 50
+    sensor:
+      - name: "Hourly Battery To Grid"
+        unique_id: ThrotBatToGrid
+        state: "{{ states('sensor.intermediate_hourly_battery_to_grid') }}"
+        unit_of_measurement: "kWh"
+  - triggers:
+      - trigger: time_pattern
+        minutes: 0
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 59
+        seconds: 50
+    sensor:
+      - name: "Hourly Battery To House"
+        unique_id: ThrotHourBatToHouse
+        state: "{{ states('sensor.intermediate_hourly_battery_to_house') }}"
+        unit_of_measurement: "kWh"
