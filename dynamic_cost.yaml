@@ -1,8 +1,69 @@
+# Dynamic Cost tracking- https://github.com/JvHummel/HA-Dynamic-Cost
+# V02052026
+
+###############################################################################
+####                                                                       ####
+####                             INPUT FIELDS                              ####
+####                                                                       ####
+###############################################################################
+
 input_text:
-  dynamic_cost_import_cost_sensor:
-    name: Import Cost Source
+  # Input text field to indicate which sensor returns the current import price
+  # Required unit: €/kWh
+  dynamic_cost_current_import_price_source:
+    name: Current Import Price Source
     icon: mdi:currency-eur
     mode: text
+
+  # Input text field to indicate which sensor returns the current export price
+  # Required unit: €/kWh
+  dynamic_cost_current_export_price_source:
+    name: Current Export Price Source
+    icon: mdi:currency-eur
+    mode: text
+
+  # Input text field to indicate which sensor returns the total energy import from grid
+  # Required unit: kWh
+  dynamic_cost_total_grid_import_source:
+    name: Total Grid Import Source
+    icon: mdi:transmission-tower-export
+    mode: text
+
+  # Input text field to indicate which sensor returns the total energy export to grid
+  # Required unit: kWh
+  dynamic_cost_total_grid_export_source:
+    name: Total Grid Export Source
+    icon: mdi:transmission-tower-import
+    mode: text
+
+  # Input text field to indicate which sensor returns the total energy produced by solar panels
+  # Required unit: kWh
+  dynamic_cost_total_solar_production_source:
+    name: Total Solar Production Source
+    icon: mdi:solar-power-variant
+    mode: text
+
+  # Input text field to indicate which sensor returns the total energy imported by batteries
+  # In other words; how much energy was used to charge the batteries
+  # Required unit: kWh
+  dynamic_cost_total_battery_charge_source:
+    name: Total Battery Charge Source
+    icon: mdi:battery-plus
+    mode: text
+
+  # Input text field to indicate which sensor returns the total energy exported by batteries
+  # In other words; how much energy was produced by discharging the batteries
+  # Required unit: kWh
+  dynamic_cost_total_battery_discharge_source:
+    name: Total Battery Discharge Source
+    icon: mdi:battery-minus
+    mode: text
+
+###############################################################################
+####                                                                       ####
+####                               TEMPLATES                               ####
+####                                                                       ####
+###############################################################################
 
 template:
   - triggers:
@@ -179,3 +240,8 @@ template:
         unique_id: ThrotHourBatToHouse
         state: "{{ states('sensor.intermediate_hourly_battery_to_house') }}"
         unit_of_measurement: "kWh"
+###############################################################################
+####                                                                       ####
+####                            UTILITY METERS                             ####
+####                                                                       ####
+###############################################################################
