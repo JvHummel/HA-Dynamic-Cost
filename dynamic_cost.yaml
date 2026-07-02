@@ -66,6 +66,42 @@ input_text:
 ###############################################################################
 
 template:
+  # Abstractions provided by sources
+  - sensor:
+      - name: "Current Import Price"
+        unique_id: dynamic_cost_current_import_price
+        state: "{{ states(states('input_text.dynamic_cost_current_import_price_source')) | float(0)}}"
+        unit_of_measurement: "€/kWh"
+  - sensor:
+      - name: "Current Export Price"
+        unique_id: dynamic_cost_current_export_price
+        state: "{{ states(states('input_text.dynamic_cost_current_export_price_source')) | float(0)}}"
+        unit_of_measurement: "€/kWh"
+  - sensor:
+      - name: "Total Grid Import"
+        unique_id: dynamic_cost_total_grid_import
+        state: "{{ states(states('input_text.dynamic_cost_total_grid_import_source')) | float(0)}}"
+        unit_of_measurement: "kWh"
+  - sensor:
+      - name: "Total Grid Export"
+        unique_id: dynamic_cost_total_grid_export
+        state: "{{ states(states('input_text.dynamic_cost_total_grid_export_source')) | float(0)}}"
+        unit_of_measurement: "kWh"
+  - sensor:
+      - name: "Total Solar Production"
+        unique_id: dynamic_cost_total_solar_production
+        state: "{{ states(states('input_text.dynamic_cost_total_solar_production_source')) | float(0)}}"
+        unit_of_measurement: "kWh"
+  - sensor:
+      - name: "Total Battery Charge"
+        unique_id: dynamic_cost_total_battery_charge
+        state: "{{ states(states('input_text.dynamic_cost_total_battery_charge_source')) | float(0)}}"
+        unit_of_measurement: "kWh"
+  - sensor:
+      - name: "Total Battery Discharge"
+        unique_id: dynamic_cost_total_battery_discharge
+        state: "{{ states(states('input_text.dynamic_cost_total_battery_discharge_source')) | float(0)}}"
+        unit_of_measurement: "kWh"
   - triggers:
       - trigger: time_pattern
         seconds: 15
