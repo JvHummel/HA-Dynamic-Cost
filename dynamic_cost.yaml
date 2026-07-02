@@ -173,6 +173,24 @@ template:
         minutes: 0
         seconds: 5
       - trigger: time_pattern
+        minutes: 14
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 15
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 29
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 30
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 44
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 45
+        seconds: 5
+      - trigger: time_pattern
         minutes: 59
         seconds: 50
     sensor:
@@ -183,6 +201,24 @@ template:
   - triggers:
       - trigger: time_pattern
         minutes: 0
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 14
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 15
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 29
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 30
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 44
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 45
         seconds: 5
       - trigger: time_pattern
         minutes: 59
@@ -197,6 +233,24 @@ template:
         minutes: 0
         seconds: 5
       - trigger: time_pattern
+        minutes: 14
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 15
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 29
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 30
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 44
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 45
+        seconds: 5
+      - trigger: time_pattern
         minutes: 59
         seconds: 50
     sensor:
@@ -207,6 +261,24 @@ template:
   - triggers:
       - trigger: time_pattern
         minutes: 0
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 14
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 15
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 29
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 30
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 44
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 45
         seconds: 5
       - trigger: time_pattern
         minutes: 59
@@ -221,6 +293,24 @@ template:
         minutes: 0
         seconds: 5
       - trigger: time_pattern
+        minutes: 14
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 15
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 29
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 30
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 44
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 45
+        seconds: 5
+      - trigger: time_pattern
         minutes: 59
         seconds: 50
     sensor:
@@ -231,6 +321,24 @@ template:
   - triggers:
       - trigger: time_pattern
         minutes: 0
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 14
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 15
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 29
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 30
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 44
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 45
         seconds: 5
       - trigger: time_pattern
         minutes: 59
@@ -245,6 +353,24 @@ template:
         minutes: 0
         seconds: 5
       - trigger: time_pattern
+        minutes: 14
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 15
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 29
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 30
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 44
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 45
+        seconds: 5
+      - trigger: time_pattern
         minutes: 59
         seconds: 50
     sensor:
@@ -257,6 +383,24 @@ template:
         minutes: 0
         seconds: 5
       - trigger: time_pattern
+        minutes: 14
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 15
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 29
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 30
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 44
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 45
+        seconds: 5
+      - trigger: time_pattern
         minutes: 59
         seconds: 50
     sensor:
@@ -267,6 +411,24 @@ template:
   - triggers:
       - trigger: time_pattern
         minutes: 0
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 14
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 15
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 29
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 30
+        seconds: 5
+      - trigger: time_pattern
+        minutes: 44
+        seconds: 50
+      - trigger: time_pattern
+        minutes: 45
         seconds: 5
       - trigger: time_pattern
         minutes: 59
