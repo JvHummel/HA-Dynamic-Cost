@@ -443,3 +443,14 @@ template:
 ####                            UTILITY METERS                             ####
 ####                                                                       ####
 ###############################################################################
+
+utility_meter:
+  dynamic_cost_battery_charged_periodically:
+    source: sensor.dynamic_cost_total_battery_charge
+    unique_id: dynamic_cost_battery_charged_periodically
+    name: Periodical Battery Charge for Dynamic Cost
+    cycle: quarter-hourly
+    delta_values: false
+    net_consumption: false
+    periodically_resetting: false
+    always_available: true
