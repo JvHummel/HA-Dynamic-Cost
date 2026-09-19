@@ -1,0 +1,7 @@
+# Pinned loosely on purpose: pytest-homeassistant-custom-component tracks HA
+# releases daily, so let pip resolve a matching pair rather than fighting it.
+homeassistant
+pytest
+pytest-asyncio
+pytest-homeassistant-custom-component
+ruff

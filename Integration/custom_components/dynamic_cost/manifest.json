@@ -1,0 +1,12 @@
+{
+  "domain": "dynamic_cost",
+  "name": "Dynamic Cost",
+  "codeowners": ["@yourgithubusername"],
+  "config_flow": true,
+  "documentation": "https://github.com/yourgithubusername/ha-dynamic-cost",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/yourgithubusername/ha-dynamic-cost/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

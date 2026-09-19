@@ -1,0 +1,96 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Dynamic Cost",
+        "description": "Select the sensors that report your grid import and export totals.",
+        "data": {
+          "grid_import_sensor": "Grid import sensor (kWh)",
+          "grid_export_sensor": "Grid export sensor (kWh)"
+        }
+      },
+      "tariff": {
+        "title": "Tariffs",
+        "data": { "tariff_mode": "Tariff type" }
+      },
+      "fixed": {
+        "title": "Fixed tariffs",
+        "data": {
+          "import_tariff": "Import tariff (per kWh)",
+          "export_tariff": "Export tariff (per kWh)",
+          "window_minutes": "Tracking window (minutes)"
+        }
+      },
+      "dynamic": {
+        "title": "Dynamic tariffs",
+        "data": {
+          "import_price_sensor": "Import price sensor",
+          "export_price_sensor": "Export price sensor"
+        }
+      },
+      "options": {
+        "title": "Accounting options",
+        "data": {
+          "opportunity_cost_mode": "Solar to battery opportunity cost",
+          "currency": "Currency"
+        }
+      }
+    },
+    "error": {
+      "unknown_entity": "That entity does not exist.",
+      "not_numeric": "That sensor does not report a number."
+    },
+    "abort": { "already_configured": "This hub is already configured." }
+  },
+  "config_subentries": {
+    "general": {
+      "title": "Add device",
+      "step": {
+        "user": {
+          "title": "General device",
+          "data": {
+            "device_name": "Name",
+            "import_sensor": "Energy used (kWh)"
+          }
+        }
+      }
+    },
+    "solar": {
+      "title": "Add solar panels",
+      "step": {
+        "user": {
+          "title": "Solar panels",
+          "data": {
+            "device_name": "Name",
+            "export_sensor": "Energy produced (kWh)"
+          }
+        }
+      }
+    },
+    "battery": {
+      "title": "Add battery",
+      "step": {
+        "user": {
+          "title": "Battery",
+          "data": {
+            "device_name": "Name",
+            "import_sensor": "Energy charged (kWh)",
+            "export_sensor": "Energy discharged (kWh)"
+          }
+        }
+      }
+    }
+  },
+  "selector": {
+    "tariff_mode": {
+      "options": { "fixed": "Fixed", "dynamic": "Dynamic" }
+    },
+    "opportunity_cost_mode": {
+      "options": {
+        "always": "Always count the opportunity cost",
+        "skip_when_export_negative": "Ignore it when the export price is below zero",
+        "never": "Never count it (treat solar as free)"
+      }
+    }
+  }
+}

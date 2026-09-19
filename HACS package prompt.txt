@@ -1,0 +1,75 @@
+Let's make a plan to write a custom HACS integration. I think the general flow should be like this:
+
+o The main integration setup flow/hub has the following (mandatory):
+- Input for a sensor that reports grid energy import (kWh imported)
+- Input for a sensor that reports grid energy export (kWh imported)
+- Input selection, two options with sub-options:
+    - Fixed tariffs, which takes
+        - Input for the import tariff (Currency per kWh)
+        - Input for the export tariff (Currency per kWh)
+        - Tracking window  for the internal calculations (Minutes)
+    - Dynamic tariffs, which takes
+        - Input for a sensor that reports the current electricity import price (Currency per kWh).
+        - Input for a sensor that reports the current electricity export price (Currency per kWh).
+- Checkbox settings for dealing with solar to battery cost:
+    - Checkbox "Treat solar as free energy". The user neglects the cost of opportunity. Solar to battery cost should not be counted.
+    - Checkbox "Treat solar as free energy during negative prices". The user is probably curtailing their PV. The PV installation only generates as much energy as is needed for house usage and battery charging. Solar to battery cost should not be counted when the export price is < 0.
+- A currency selection
+- Output sensors for split energy flow statistics, updated at the end of every tracking window (kWh):
+    - House Energy Usage: Solar + GridImport + BatteryDischarge - BatteryCharge - GridExport
+    - Solar To House: MAX(0, MIN(Solar - Grid Export, House Energy Usage - Battery Discharge))
+    - Solar To Battery: MAX(0, Solar - Grid Export - Solar To House)
+    - Grid To Battery: MIN(Grid Import, Battery Charge - Solar To Battery)
+    - Solar To Grid: Solar - Solar To Battery - Solar To House
+    - Grid To House: MAX(0, Grid Import - Grid To Battery)
+    - Battery To House: MAX(0, House Energy Usage - Grid To House - Solar To House)
+    - Battery To Grid: MAX(0, Battery Discharge - Battery To House)
+- Output sensors for split financial statistics, updated at the end of every tracking window. (Currency):
+    - Grid import cost (Grid Import *  Import price)
+    - Grid export cost (Grid Export * -Export price
+    - House Energy Usage Cost (add cost of all relevant splits, see energy definition for House Energy Usage)
+    - Solar To House savings; use import price to calculate
+    - Solar To Battery cost; use export price to calculate. Consideration: this is a cost of opportunity, the energy could have been exported to the grid for this price. When Export price is negative, the user might be curtailing their PV installation. At that point, solar energy is free. The user might also choose to always treat PV as free energy. Take into account the two config checkboxes when dealing with this cost.
+    - Grid To Battery cost; use import price to calculate
+    - Solar To Grid profit: use export price to calculate
+    - Grid To House cost: use import price to calculate
+    - Battery To House savings: : use import price to calculate
+    - Battery To Grid profit: use export price to calculate
+
+Then, multiple instances/devices under the main hub can be added. This can be:
+- General, for which the integration takes only an energy import sensor (kWh used)
+- Solar panels, for which the integration takes only an energy export sensor (kWh produced)
+- Batteries, for which the integration takes both an import sensor (kWh charged) and an export sensor (kWh discharged).
+
+Every such device under the hub additionally tracks, updated at the end of every tracking window (Currency):
+- An import total energy counter and an import total value counter (General, batteries)
+- An export total energy counter and an export total value counter (Solar panels, batteries)
+
+Principle of operation:
+- The integration works with tracking windows. A window is defined as such:
+    - For fixed tariffs, the tracking window starts at integration load. It ends after the Tracking Window time set in the options, at which time a new window is started.
+    - For dynamic tariffs, the tracking window starts at integration load, and ends when the import price assumes a new value, at which time a new window is started.
+- When a window starts, the state of all the energy import/export sensors is latched and kept in memory.
+- When a window ends, the state of all the energy import/export sensors is latched again in separate memory.
+- The old and new energy values determine how much energy for any given device has been imported or exported during the window.
+- The old and new energy values, multiplied by the window's import and export prices determine the value for the device's imported and/or exported energy during the window.
+- The energy flows (import/export, whichever is/are applicable) are added to the device's total energy counters
+- The energy values (import/export, whichever is/are applicable) are added to the device's total value counters
+- At the end of the window, for each hub, the integration should also split all energy flows and their costs/profits/savings and assign them to their respective hub sensors as defined above. All batteries under a single hub should be treated as a single item for that hub when doing split calculations. Same goes for PV.
+
+Other considerations:
+- Assume that all energy input sensors track positive values, both import and export sensors should report positive values.
+- Output sensors can go negative. E.g. profit can go negative if energy is sold when export price < 0. Import cost can also go negative when energy is imported when import price < 0.
+- There is NO limit on how many hubs can be added. The integration should support multiple hub instances. This might be useful when users want to track their real usage and simulated results under separate instances, for example when simulating a battery or solar panels.
+- In accordance with above point, the user should be able to track devices multiple times under separate hubs without limitation, for example for if they want to simulate/track different contract types for the same configuration.
+- There is NO limit on how many devices, even of any single type, can be added under a hub. The integration should support as many devices, solar panels and batteries as the user deems fit under a single hub.
+- Under a single hub, solar panels should be combined for split calculations. As should batteries.
+- The selected currency should be applied to all value outputs.
+- Since EPEX doesn't have asynchronous import/export, it should be assumed that import/export price changes correllate, even though templating or source issues outside of our control mean that the values don't change at exactly the same time. The integration should safely determine the price for import/export active during the last window. I think it's safe to implement is as follows:
+    - (Given fact) the import price triggers the new window. So the import price is already known for the new window.
+    - The export price may lead or lag the change in import price.
+    - The export price at the time of the import price change is assumed to be the export price for this window.
+    - If the export price changes in the first minute of the current window, this updates the export price for the current window
+    - EPEX pricing currently updates every 15 minutes at most, so I think this is a safe assumption.
+
+Please write a plan for how you would implement this functionality, ask clarifying questions when in doubt.
