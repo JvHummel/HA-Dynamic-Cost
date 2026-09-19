@@ -61,34 +61,47 @@ class FinancialSplits:
 
 
 def calculate_energy_splits(energy: WindowEnergy) -> EnergySplits:
-    """Split one window's raw energy figures into the eight derived flows.
+    """Split one window's raw energy figures into the eight derived flows."""
 
-    IMPLEMENT ME.
-
-    Work through the formulas in order -- each one reuses results from the
-    ones above it, which is what keeps the whole set internally consistent
-    (e.g. solar_to_house + solar_to_battery + solar_to_grid can never exceed
-    the solar actually produced).
-
-        house_energy_usage = solar + grid_import + battery_discharge
-                              - battery_charge - grid_export
-        solar_to_house     = max(0, min(solar - grid_export,
-                                        house_energy_usage - battery_discharge))
-        solar_to_battery   = max(0, solar - grid_export - solar_to_house)
-        grid_to_battery    = min(grid_import, battery_charge - solar_to_battery)
-        solar_to_grid      = solar - solar_to_battery - solar_to_house
-        grid_to_house      = max(0, grid_import - grid_to_battery)
-        battery_to_house   = max(0, house_energy_usage - grid_to_house
-                                     - solar_to_house)
-        battery_to_grid    = max(0, battery_discharge - battery_to_house)
-
-    The max(0, ...) clamps are not cosmetic: these values are derived from
-    separate meters that may update microseconds apart, so an intermediate
-    result can briefly go slightly negative. Clamping absorbs that jitter
-    instead of letting it cascade into every later formula.
-
-    Return an EnergySplits instance.
     """
+        House energy usage is the 'ground truth' for a couple of the next
+        calculations.
+
+        The house energy usage is calculated as the difference between all
+        generated/imported energy, and the exported/battery charge energy. 
+    """
+    house_energy_usage = (( # All energy that was produced
+                            energy.solar +
+                            energy.grid_import + 
+                            energy.battery_discharge
+                            ) - ( # subtract all energy that was exported
+                            energy.battery_charge +
+                            energy.grid_export
+                          ))
+
+    solar_to_house     = max(0, min(energy.solar - energy.grid_export,
+                                    house_energy_usage - energy.battery_discharge))
+
+    solar_to_battery   = max(0, energy.solar - energy.grid_export - solar_to_house)
+    grid_to_battery    = min(energy.grid_import, energy.battery_charge - solar_to_battery)
+    solar_to_grid      = energy.solar - solar_to_battery - solar_to_house
+    grid_to_house      = max(0, energy.grid_import - grid_to_battery)
+    battery_to_house   = max(0, house_energy_usage - grid_to_house
+                                    - solar_to_house)
+    battery_to_grid    = max(0, energy.battery_discharge - battery_to_house)
+    
+
+    return EnergySplits(
+        battery_to_grid    = battery_to_grid,
+        battery_to_house   = battery_to_house,
+        grid_to_battery    = grid_to_battery,
+        grid_to_house      = grid_to_house,
+        house_energy_usage = house_energy_usage,
+        solar_to_battery   = solar_to_battery,
+        solar_to_grid      = solar_to_grid,
+        solar_to_house     = solar_to_house
+    )
+
     raise NotImplementedError
 
 
