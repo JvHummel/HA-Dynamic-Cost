@@ -76,12 +76,19 @@ def test_opportunity_cost_modes(mode, export_price, expected):
 # ---------------------------------------------------------------------------
 
 def test_battery_discharge_covers_house_when_no_solar():
-    """Night-time: battery runs the house, nothing from solar, nothing exported.
+    """Night-time: battery runs the house, nothing from solar"""
+    splits = calculate_energy_splits(WindowEnergy(battery_discharge=3.0,
+                                                  grid_import=0.05,
+                                                  grid_export=0.1))
 
-    WRITE ME. Build a WindowEnergy with only battery_discharge and maybe a
-    little grid_import, and assert battery_to_house comes out right.
-    """
-    pytest.skip("exercise: write this test")
+    assert splits.house_energy_usage == pytest.approx(2.95)
+    assert splits.solar_to_house     == pytest.approx(0)
+    assert splits.solar_to_battery   == pytest.approx(0)
+    assert splits.solar_to_grid      == pytest.approx(0)
+    assert splits.battery_to_grid    == pytest.approx(0.1)
+    assert splits.battery_to_house   == pytest.approx(2.9)
+    assert splits.grid_to_battery    == pytest.approx(0)
+    assert splits.grid_to_house      == pytest.approx(0.05)
 
 
 def test_house_energy_usage_cost_blends_three_streams():

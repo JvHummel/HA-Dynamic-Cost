@@ -112,11 +112,10 @@ def calculate_solar_to_battery_cost(
 ) -> float:
     """Value the solar energy that went into the battery.
 
-    IMPLEMENT ME.
-
     This is an opportunity cost: that energy could have been exported and
     sold instead, so it is valued at the EXPORT price, not the import price.
 
+    
         NEVER                     -> 0.0 (user treats solar as free)
         SKIP_WHEN_EXPORT_NEGATIVE -> 0.0 when export_price < 0, else the
                                      normal calculation (user is likely
@@ -124,8 +123,24 @@ def calculate_solar_to_battery_cost(
                                      that energy really was free)
         ALWAYS                    -> solar_to_battery * export_price
     """
-    raise NotImplementedError
+    match mode:
+        case OpportunityCostMode.NEVER:
+            # User treats solar as free
+            return 0
 
+        case OpportunityCostMode.SKIP_WHEN_EXPORT_NEGATIVE:
+            # User is like curtailing PV when this option is selected.
+            # clamp to 0: exclude negative price from affecting result.
+            return max(0, solar_to_battery * export_price)
+
+        case OpportunityCostMode.ALWAYS:
+            # "normal" calculation: always count cost of opportunity
+            return solar_to_battery * export_price
+
+        case _:
+            # Future modes?
+            raise NotImplementedError
+    
 
 def calculate_financial_splits(
     splits: EnergySplits,
@@ -134,31 +149,35 @@ def calculate_financial_splits(
     export_price: float,
     mode: OpportunityCostMode,
 ) -> FinancialSplits:
-    """Convert one window's energy splits into monetary figures.
+    """Convert one window's energy splits into monetary figures."""
+    grid_import_cost        = energy.grid_import      *  import_price
+    grid_export_cost        = energy.grid_export      * -export_price
+    solar_to_house_savings  = splits.solar_to_house   *  import_price
+    grid_to_battery_cost    = splits.grid_to_battery  *  import_price
+    battery_to_house_savings= splits.battery_to_house *  import_price
+    solar_to_grid_profit    = splits.solar_to_grid    *  export_price
+    grid_to_house_cost      = splits.grid_to_house    *  import_price
+    battery_to_grid_profit  = splits.battery_to_grid  *  export_price
+    
+    solar_to_battery_cost   = calculate_solar_to_battery_cost(splits.solar_to_battery, 
+                                                              export_price, 
+                                                              mode)
 
-    IMPLEMENT ME.
-
-        grid_import_cost        = grid_import * import_price
-        grid_export_cost        = grid_export * -export_price
-        solar_to_house_savings  = solar_to_house * import_price
-        grid_to_battery_cost    = grid_to_battery * import_price
-        battery_to_house_savings= battery_to_house * import_price
-        solar_to_grid_profit    = solar_to_grid * export_price
-        grid_to_house_cost      = grid_to_house * import_price
-        battery_to_grid_profit  = battery_to_grid * export_price
-        solar_to_battery_cost   = calculate_solar_to_battery_cost(...)
-
-        house_energy_usage_cost = grid_to_house_cost
-                                   + solar_to_house_savings
-                                   + battery_to_house_savings
-
-    Note that nothing here is clamped. Every one of these is allowed to go
-    negative -- that is the whole point of tracking dynamic tariffs, where
-    import at a negative price earns money and export at a negative price
-    costs money.
-    """
-    raise NotImplementedError
-
+    house_energy_usage_cost = (grid_to_house_cost     + 
+                               solar_to_house_savings +
+                               battery_to_house_savings)
+    return FinancialSplits(
+        battery_to_grid_profit   = battery_to_grid_profit,
+        battery_to_house_savings = battery_to_house_savings,
+        grid_export_cost         = grid_export_cost,
+        grid_import_cost         = grid_import_cost,
+        grid_to_battery_cost     = grid_to_battery_cost,
+        grid_to_house_cost       = grid_to_house_cost,
+        house_energy_usage_cost  = house_energy_usage_cost,
+        solar_to_battery_cost    = solar_to_battery_cost,
+        solar_to_grid_profit     = solar_to_grid_profit,
+        solar_to_house_savings   = solar_to_house_savings
+    )
 
 def calculate_device_value(
     energy_delta: float,
@@ -166,11 +185,9 @@ def calculate_device_value(
 ) -> float:
     """Value one device's energy movement for one window.
 
-    IMPLEMENT ME.
-
     This is deliberately trivial (energy * price) and separate from the split
     maths above: per-device counters are plain sub-metering, they do not feed
     the hub-level splits at all. Kept as its own function so the rounding or
     sign conventions only ever have to change in one place.
     """
-    raise NotImplementedError
+    return energy_delta * price
