@@ -109,7 +109,17 @@ class WindowEngine:
 
         Keep every unsubscribe callable in self._unsubscribes.
         """
-        raise NotImplementedError
+        match self._config.get(CONF_TARIFF_MODE):
+            case TariffMode.DYNAMIC:
+                # doe iets
+
+            case TariffMode.FIXED:
+                async_track_time_interval(self._hass, )
+
+            case _:
+                # Future modes?
+                raise NotImplementedError
+
 
     @callback
     def async_stop(self) -> None:
