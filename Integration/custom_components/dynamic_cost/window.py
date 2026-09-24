@@ -21,12 +21,28 @@ from homeassistant.helpers.event import (
 )
 
 from .calc import WindowEnergy
-from .const import EXPORT_PRICE_GRACE_SECONDS, TariffMode
+from .const import EXPORT_PRICE_GRACE_SECONDS, DeviceType, TariffMode
 
 _LOGGER = logging.getLogger(__name__)
 
 UNSET = object()
 """Sentinel meaning 'no export price has been captured for this window yet'."""
+
+
+@dataclass(frozen=True)
+class Device:
+    """One device subentry (solar array, battery or general device).
+
+    Built in __init__.py from entry.subentries. Complete -- nothing to
+    implement. Which sensor fields are set depends on device_type:
+    GENERAL has only import_sensor, SOLAR only export_sensor, BATTERY both.
+    """
+
+    subentry_id: str
+    device_type: DeviceType
+    name: str
+    import_sensor: str | None = None
+    export_sensor: str | None = None
 
 
 @dataclass
@@ -52,10 +68,19 @@ class WindowState:
 class WindowEngine:
     """Drives tracking windows for one hub."""
 
-    def __init__(self, hass: HomeAssistant, config: dict[str, Any]) -> None:
-        """Store config and set up empty state. No listeners yet."""
+    def __init__(
+        self, hass: HomeAssistant, config: dict[str, Any], devices: list[Device]
+    ) -> None:
+        """Store config and set up empty state. No listeners yet.
+
+        config holds the hub's own settings (the CONF_* keys from the config
+        flow); devices holds its subentries. You will want one TrackedSensor
+        in self._sensors per sensor you read at a boundary: the hub's two grid
+        sensors plus every sensor of every device.
+        """
         self._hass = hass
         self._config = config
+        self._devices = devices
         self._sensors: dict[str, TrackedSensor] = {}
         self._window = WindowState()
         self._unsubscribes: list[Callable[[], None]] = []

@@ -13,8 +13,14 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
-from .window import WindowEngine
+from .const import (
+    CONF_DEVICE_NAME,
+    CONF_EXPORT_SENSOR,
+    CONF_IMPORT_SENSOR,
+    DOMAIN,
+    DeviceType,
+)
+from .window import Device, WindowEngine
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,7 +35,20 @@ async def async_setup_entry(
     """Set up one Dynamic Cost hub from a config entry."""
     config = {**entry.data, **entry.options}
 
-    engine = WindowEngine(hass, config)
+    # Devices are subentries, which are NOT part of entry.data -- each one is
+    # stored separately in entry.subentries, keyed by subentry id.
+    devices = [
+        Device(
+            subentry_id=subentry.subentry_id,
+            device_type=DeviceType(subentry.subentry_type),
+            name=subentry.data.get(CONF_DEVICE_NAME, subentry.title),
+            import_sensor=subentry.data.get(CONF_IMPORT_SENSOR),
+            export_sensor=subentry.data.get(CONF_EXPORT_SENSOR),
+        )
+        for subentry in entry.subentries.values()
+    ]
+
+    engine = WindowEngine(hass, config, devices)
     await engine.async_start()
 
     # runtime_data is the modern place to hang per-entry objects; it is typed
