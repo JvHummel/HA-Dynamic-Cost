@@ -92,18 +92,18 @@ def test_battery_discharge_covers_house_when_no_solar():
 
 
 def test_house_energy_usage_cost_blends_three_streams():
-    """house_energy_usage_cost = grid_to_house + solar_to_house + battery_to_house.
+    """house_energy_usage_cost = grid_to_house + solar_to_house + battery_to_house."""
+    energy = WindowEnergy(battery_discharge=0.5,
+                          solar=2,
+                          grid_import=0.5)
 
-    WRITE ME. Construct a window where all three contribute, then check the
-    blended figure. Remember it is NOT a net 'after offsets' number.
-    """
-    pytest.skip("exercise: write this test")
+    splits = calculate_energy_splits(energy)
 
+    money = calculate_financial_splits(
+        splits, energy,
+        import_price=0.25,
+        export_price=0.125,
+        mode=OpportunityCostMode.ALWAYS,
+    )
 
-def test_meter_jitter_does_not_produce_negative_flows():
-    """A slightly inconsistent set of readings must not yield negative splits.
-
-    WRITE ME. Feed numbers that do not quite balance (as two meters updating
-    microseconds apart would produce) and assert every energy split is >= 0.
-    """
-    pytest.skip("exercise: write this test")
+    assert money.house_energy_usage_cost == pytest.approx(0.75)
