@@ -97,32 +97,33 @@ class WindowEngine:
     # -- lifecycle ---------------------------------------------------------
 
     async def async_start(self) -> None:
-        """Register listeners/timers and open the first window.
-
-        IMPLEMENT ME.
-
-        Fixed tariff mode:
-            - async_track_time_interval(...) firing every CONF_WINDOW_MINUTES,
-              calling self._async_boundary_reached().
-
-        Dynamic tariff mode:
-            - async_track_state_change_event(...) on the import price sensor,
-              calling self._async_import_price_changed().
-            - async_track_state_change_event(...) on the export price sensor,
-              calling self._async_export_price_changed().
-
-        Either way: take the opening snapshot of every tracked sensor and
-        open the first window using whatever the price sensors currently read
-        (per the plan: the very first window just uses current values).
-
-        Keep every unsubscribe callable in self._unsubscribes.
-        """
+        """Register listeners/timers and open the first window."""
         match self._config.get(CONF_TARIFF_MODE):
             case TariffMode.DYNAMIC:
-                # doe iets
+                self._unsubscribes.append(
+                    async_track_state_change_event( 
+                        self._hass,
+                        self._config.get(CONF_IMPORT_PRICE_SENSOR),
+                        self._async_import_price_changed
+                    )
+                )
+
+                self._unsubscribes.append(
+                    async_track_state_change_event( 
+                        self._hass,
+                        self._config.get(CONF_EXPORT_PRICE_SENSOR),
+                        self._async_export_price_changed
+                    )
+                )
 
             case TariffMode.FIXED:
-                async_track_time_interval(self._hass, )
+                self._unsubscribes.append(
+                    async_track_time_interval(
+                        self._hass,
+                        self._async_boundary_reached,
+                        self._config.get(CONF_WINDOW_MINUTES) * 60
+                    )
+                )
 
             case _:
                 # Future modes?
@@ -140,6 +141,21 @@ class WindowEngine:
         stops duplicate listeners piling up when the user reloads the entry.
         """
         raise NotImplementedError
+
+    @callback
+    def _open_window(self, import_price: float | None) -> None:
+        """Start a fresh window: new WindowState, new grace timer."""
+        if self._window.cancel_grace is not None:
+            self._window.cancel_grace()
+
+        self._window = WindowState(import_price=import_price)
+
+        self._window.cancel_grace = async_call_later(
+            self._hass,
+            EXPORT_PRICE_GRACE_SECONDS,
+            self._async_grace_elapsed
+        )
+
 
     # -- sensor reading ----------------------------------------------------
 
