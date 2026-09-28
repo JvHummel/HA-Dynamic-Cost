@@ -69,13 +69,13 @@ def calculate_energy_splits(energy: WindowEnergy) -> EnergySplits:
         generated/imported energy, and the exported/battery charge energy. 
     """
     house_energy_usage = (( # All energy that was produced
-                            energy.solar +
-                            energy.grid_import + 
-                            energy.battery_discharge
-                            ) - ( # subtract all energy that was exported
-                            energy.battery_charge +
-                            energy.grid_export
-                          ))
+        energy.solar +
+        energy.grid_import + 
+        energy.battery_discharge
+    ) - ( # subtract all energy that was exported
+        energy.battery_charge +
+        energy.grid_export
+    ))
 
     solar_to_house     = max(0, min(energy.solar - energy.grid_export,
                                     house_energy_usage - energy.battery_discharge))
@@ -113,8 +113,6 @@ def calculate_solar_to_battery_cost(
     This is an opportunity cost: that energy could have been exported and
     sold instead, so it is valued at the EXPORT price, not the import price.
 
-    IMPLEMENT ME.
-
         treat_solar_as_free -> 0.0
         otherwise           -> solar_to_battery * export_price
 
@@ -126,7 +124,10 @@ def calculate_solar_to_battery_cost(
     Note the otherwise-case is NOT clamped: a negative export price gives a
     negative cost, because storing the energy avoided paying to export it.
     """
-    raise NotImplementedError
+    if treat_solar_as_free:
+        export_price = 0
+
+    return solar_to_battery * export_price
 
 
 def calculate_financial_splits(
