@@ -17,7 +17,6 @@ from custom_components.dynamic_cost.calc import (
     calculate_financial_splits,
     calculate_solar_to_battery_cost,
 )
-from custom_components.dynamic_cost.const import OpportunityCostMode
 
 
 def test_all_solar_goes_to_house():
@@ -49,25 +48,23 @@ def test_import_at_negative_price_earns_money():
     money = calculate_financial_splits(
         splits, energy,
         import_price=-0.05, export_price=0.0,
-        mode=OpportunityCostMode.ALWAYS,
+        treat_solar_as_free=False,
     )
     assert money.grid_import_cost == pytest.approx(-0.20)
 
 
 @pytest.mark.parametrize(
-    ("mode", "export_price", "expected"),
+    ("treat_solar_as_free", "export_price", "expected"),
     [
-        (OpportunityCostMode.ALWAYS, 0.10, 0.50),
-        (OpportunityCostMode.ALWAYS, -0.10, -0.50),
-        (OpportunityCostMode.SKIP_WHEN_EXPORT_NEGATIVE, 0.10, 0.50),
-        (OpportunityCostMode.SKIP_WHEN_EXPORT_NEGATIVE, -0.10, 0.0),
-        (OpportunityCostMode.NEVER, 0.10, 0.0),
-        (OpportunityCostMode.NEVER, -0.10, 0.0),
+        (False, 0.10, 0.50),
+        (False, -0.10, -0.50),
+        (True, 0.10, 0.0),
+        (True, -0.10, 0.0),
     ],
 )
-def test_opportunity_cost_modes(mode, export_price, expected):
-    """All three modes, on both sides of zero."""
-    result = calculate_solar_to_battery_cost(5.0, export_price, mode)
+def test_solar_to_battery_cost(treat_solar_as_free, export_price, expected):
+    """Free means zero; otherwise the cost follows the export price's sign."""
+    result = calculate_solar_to_battery_cost(5.0, export_price, treat_solar_as_free)
     assert result == pytest.approx(expected)
 
 
@@ -103,7 +100,7 @@ def test_house_energy_usage_cost_blends_three_streams():
         splits, energy,
         import_price=0.25,
         export_price=0.125,
-        mode=OpportunityCostMode.ALWAYS,
+        treat_solar_as_free=False,
     )
 
     assert money.house_energy_usage_cost == pytest.approx(0.75)

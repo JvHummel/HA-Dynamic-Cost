@@ -27,7 +27,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any
 
-from homeassistant.const import STATE_UNAVAILABLE
+from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
@@ -37,6 +37,7 @@ from pytest_homeassistant_custom_component.common import (
 
 from custom_components.dynamic_cost.const import (
     CONF_CURRENCY,
+    CONF_CURTAILMENT_SOURCE,
     CONF_DEVICE_NAME,
     CONF_EXPORT_PRICE_SENSOR,
     CONF_EXPORT_SENSOR,
@@ -46,13 +47,12 @@ from custom_components.dynamic_cost.const import (
     CONF_IMPORT_PRICE_SENSOR,
     CONF_IMPORT_SENSOR,
     CONF_IMPORT_TARIFF,
-    CONF_OPPORTUNITY_COST_MODE,
     CONF_TARIFF_MODE,
+    CONF_TREAT_SOLAR_AS_FREE,
     CONF_WINDOW_MINUTES,
     DOMAIN,
     EXPORT_PRICE_GRACE_SECONDS,
     DeviceType,
-    OpportunityCostMode,
     TariffMode,
 )
 
@@ -60,6 +60,7 @@ GRID_IMPORT = "sensor.sim_grid_import"
 GRID_EXPORT = "sensor.sim_grid_export"
 IMPORT_PRICE = "sensor.sim_import_price"
 EXPORT_PRICE = "sensor.sim_export_price"
+CURTAILMENT = "input_boolean.sim_curtailment"
 
 
 class Simulator:
@@ -82,7 +83,8 @@ class Simulator:
         solar: list[str] | None = None,
         batteries: list[tuple[str, str]] | None = None,
         general: list[str] | None = None,
-        mode: OpportunityCostMode = OpportunityCostMode.ALWAYS,
+        treat_solar_as_free: bool = False,
+        curtailment: bool = False,
         tariff_mode: TariffMode = TariffMode.DYNAMIC,
         import_tariff: float = 0.0,
         export_tariff: float = 0.0,
@@ -96,6 +98,10 @@ class Simulator:
 
         import_tariff, export_tariff and window_minutes only matter in
         fixed tariff mode.
+
+        curtailment=True configures CURTAILMENT as the hub's curtailment
+        source (starting off); drive it with set_curtailed(). Left False,
+        the hub has no source and every window counts as uncurtailed.
         """
         self._tariff_mode = tariff_mode
         self._window_minutes = window_minutes
@@ -104,6 +110,8 @@ class Simulator:
         for entity_id in (GRID_IMPORT, GRID_EXPORT):
             self.set_meter(entity_id, 0.0)
         self.set_price(import_price=0.0, export_price=0.0)
+        if curtailment:
+            self.set_curtailed(False)
 
         for entity_id in (solar or []) + (general or []):
             self.set_meter(entity_id, 0.0)
@@ -126,21 +134,26 @@ class Simulator:
                 DeviceType.GENERAL, f"General {i}", {CONF_IMPORT_SENSOR: entity_id}
             ))
 
+        data: dict[str, Any] = {
+            CONF_GRID_IMPORT_SENSOR: GRID_IMPORT,
+            CONF_GRID_EXPORT_SENSOR: GRID_EXPORT,
+            CONF_TARIFF_MODE: tariff_mode,
+            CONF_IMPORT_PRICE_SENSOR: IMPORT_PRICE,
+            CONF_EXPORT_PRICE_SENSOR: EXPORT_PRICE,
+            CONF_IMPORT_TARIFF: import_tariff,
+            CONF_EXPORT_TARIFF: export_tariff,
+            CONF_WINDOW_MINUTES: window_minutes,
+            CONF_TREAT_SOLAR_AS_FREE: treat_solar_as_free,
+            CONF_CURRENCY: "EUR",
+        }
+        # An empty optional field is absent from the saved data, not None.
+        if curtailment:
+            data[CONF_CURTAILMENT_SOURCE] = CURTAILMENT
+
         self.entry = MockConfigEntry(
             domain=DOMAIN,
             title="Simulated hub",
-            data={
-                CONF_GRID_IMPORT_SENSOR: GRID_IMPORT,
-                CONF_GRID_EXPORT_SENSOR: GRID_EXPORT,
-                CONF_TARIFF_MODE: tariff_mode,
-                CONF_IMPORT_PRICE_SENSOR: IMPORT_PRICE,
-                CONF_EXPORT_PRICE_SENSOR: EXPORT_PRICE,
-                CONF_IMPORT_TARIFF: import_tariff,
-                CONF_EXPORT_TARIFF: export_tariff,
-                CONF_WINDOW_MINUTES: window_minutes,
-                CONF_OPPORTUNITY_COST_MODE: mode,
-                CONF_CURRENCY: "EUR",
-            },
+            data=data,
             subentries_data=subentries,
         )
         self.entry.add_to_hass(self._hass)
@@ -196,6 +209,10 @@ class Simulator:
                 {"unit_of_measurement": "EUR/kWh"},
                 force_update=True,
             )
+
+    def set_curtailed(self, curtailed: bool) -> None:
+        """Turn the curtailment source on or off, as a user automation would."""
+        self._hass.states.async_set(CURTAILMENT, STATE_ON if curtailed else STATE_OFF)
 
     async def async_advance_window(
         self, *, import_price: float | None = None, export_price: float | None = None

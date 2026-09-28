@@ -31,8 +31,13 @@
       "options": {
         "title": "Accounting options",
         "data": {
-          "opportunity_cost_mode": "Solar to battery opportunity cost",
+          "treat_solar_as_free": "Treat solar to battery energy as free",
+          "curtailment_source": "Curtailment source",
           "currency": "Currency"
+        },
+        "data_description": {
+          "treat_solar_as_free": "When on, solar energy stored in the battery is never valued at the export price.",
+          "curtailment_source": "Optional. A switch or boolean that is on while your solar output is being curtailed; solar stored during those windows counts as free. Leave empty if you never curtail."
         }
       }
     },
@@ -84,13 +89,6 @@
   "selector": {
     "tariff_mode": {
       "options": { "fixed": "Fixed", "dynamic": "Dynamic" }
-    },
-    "opportunity_cost_mode": {
-      "options": {
-        "always": "Always count the opportunity cost",
-        "skip_when_export_negative": "Ignore it when the export price is below zero",
-        "never": "Never count it (treat solar as free)"
-      }
     }
   }
 }

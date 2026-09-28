@@ -12,8 +12,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .const import OpportunityCostMode
-
 
 @dataclass(frozen=True, slots=True)
 class WindowEnergy:
@@ -108,46 +106,35 @@ def calculate_energy_splits(energy: WindowEnergy) -> EnergySplits:
 def calculate_solar_to_battery_cost(
     solar_to_battery: float,
     export_price: float,
-    mode: OpportunityCostMode,
+    treat_solar_as_free: bool,
 ) -> float:
     """Value the solar energy that went into the battery.
 
     This is an opportunity cost: that energy could have been exported and
     sold instead, so it is valued at the EXPORT price, not the import price.
 
-    
-        NEVER                     -> 0.0 (user treats solar as free)
-        SKIP_WHEN_EXPORT_NEGATIVE -> 0.0 when export_price < 0, else the
-                                     normal calculation (user is likely
-                                     curtailing PV at negative prices, so
-                                     that energy really was free)
-        ALWAYS                    -> solar_to_battery * export_price
+    IMPLEMENT ME.
+
+        treat_solar_as_free -> 0.0
+        otherwise           -> solar_to_battery * export_price
+
+    treat_solar_as_free is decided by the caller: it is true when the hub's
+    checkbox is on OR the curtailment source locked "on" for this window
+    (curtailed PV could not have exported that energy, so it really was
+    free). This function doesn't care which of the two it was.
+
+    Note the otherwise-case is NOT clamped: a negative export price gives a
+    negative cost, because storing the energy avoided paying to export it.
     """
-    match mode:
-        case OpportunityCostMode.NEVER:
-            # User treats solar as free
-            return 0
+    raise NotImplementedError
 
-        case OpportunityCostMode.SKIP_WHEN_EXPORT_NEGATIVE:
-            # User is like curtailing PV when this option is selected.
-            # clamp to 0: exclude negative price from affecting result.
-            return max(0, solar_to_battery * export_price)
-
-        case OpportunityCostMode.ALWAYS:
-            # "normal" calculation: always count cost of opportunity
-            return solar_to_battery * export_price
-
-        case _:
-            # Future modes?
-            raise NotImplementedError
-    
 
 def calculate_financial_splits(
     splits: EnergySplits,
     energy: WindowEnergy,
     import_price: float,
     export_price: float,
-    mode: OpportunityCostMode,
+    treat_solar_as_free: bool,
 ) -> FinancialSplits:
     """Convert one window's energy splits into monetary figures."""
     grid_import_cost        = energy.grid_import      *  import_price
@@ -161,7 +148,7 @@ def calculate_financial_splits(
     
     solar_to_battery_cost   = calculate_solar_to_battery_cost(splits.solar_to_battery, 
                                                               export_price, 
-                                                              mode)
+                                                              treat_solar_as_free)
 
     house_energy_usage_cost = (grid_to_house_cost     + 
                                solar_to_house_savings +

@@ -23,7 +23,9 @@ CONF_EXPORT_TARIFF: Final = "export_tariff"          # fixed mode only
 CONF_WINDOW_MINUTES: Final = "window_minutes"        # fixed mode only
 CONF_IMPORT_PRICE_SENSOR: Final = "import_price_sensor"   # dynamic mode only
 CONF_EXPORT_PRICE_SENSOR: Final = "export_price_sensor"   # dynamic mode only
-CONF_OPPORTUNITY_COST_MODE: Final = "opportunity_cost_mode"
+CONF_TREAT_SOLAR_AS_FREE: Final = "treat_solar_as_free"
+# Optional; absent means never curtailed.
+CONF_CURTAILMENT_SOURCE: Final = "curtailment_source"
 CONF_CURRENCY: Final = "currency"
 
 # ---------------------------------------------------------------------------
@@ -42,14 +44,6 @@ class TariffMode(StrEnum):
     DYNAMIC = "dynamic"
 
 
-class OpportunityCostMode(StrEnum):
-    """How Solar To Battery opportunity cost is treated."""
-
-    ALWAYS = "always"
-    SKIP_WHEN_EXPORT_NEGATIVE = "skip_when_export_negative"
-    NEVER = "never"
-
-
 class DeviceType(StrEnum):
     """Kind of device tracked under a hub."""
 
@@ -61,8 +55,8 @@ class DeviceType(StrEnum):
 # Subentry types must be registered under these exact strings.
 SUBENTRY_TYPES: Final = (DeviceType.GENERAL, DeviceType.SOLAR, DeviceType.BATTERY)
 
-# Seconds after a window opens during which a late export-price update is
-# still accepted for that window. See the plan's window-engine section.
+# Seconds after a window opens during which export-price and curtailment
+# updates still count for that window. See the plan's window-engine section.
 EXPORT_PRICE_GRACE_SECONDS: Final = 60
 
 # ---------------------------------------------------------------------------

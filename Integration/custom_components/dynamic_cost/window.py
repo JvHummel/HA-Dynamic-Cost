@@ -24,7 +24,9 @@ from .calc import WindowEnergy
 from .const import (
     CONF_EXPORT_PRICE_SENSOR,
     CONF_IMPORT_PRICE_SENSOR,
+    CONF_CURTAILMENT_SOURCE,
     CONF_TARIFF_MODE,
+    CONF_TREAT_SOLAR_AS_FREE,
     CONF_WINDOW_MINUTES,
     EXPORT_PRICE_GRACE_SECONDS,
     DeviceType,
@@ -34,7 +36,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 UNSET = object()
-"""Sentinel meaning 'no export price has been captured for this window yet'."""
+"""Sentinel: no export price or curtailment state captured for this window yet."""
 
 
 @dataclass(frozen=True)
@@ -69,6 +71,8 @@ class WindowState:
     import_price: float | None = None
     tentative_export_price: Any = UNSET
     locked_export_price: float | None = None
+    tentative_curtailed: Any = UNSET
+    locked_curtailed: bool | None = None
     grace_elapsed: bool = False
     cancel_grace: Callable[[], None] | None = None
 
@@ -129,6 +133,9 @@ class WindowEngine:
                 # Future modes?
                 raise NotImplementedError
 
+        # TODO: Addendum 1 -- when CONF_CURTAILMENT_SOURCE is set, also track
+        # it with self._async_curtailment_changed (in both tariff modes).
+
 
     @callback
     def async_stop(self) -> None:
@@ -149,6 +156,9 @@ class WindowEngine:
             self._window.cancel_grace()
 
         self._window = WindowState(import_price=import_price)
+        # TODO: Addendum 1 -- read the curtailment source tentatively here.
+        # With no source configured, lock it as False straight away so the
+        # window never waits on it.
 
         self._window.cancel_grace = async_call_later(
             self._hass,
@@ -263,6 +273,7 @@ class WindowEngine:
             - if tentative_export_price is UNSET: return WITHOUT locking. The
               grace period is the earliest a price may lock, not a deadline.
             - otherwise lock it (see _lock_export_price).
+            - same again for tentative_curtailed (see _lock_curtailment).
         """
         raise NotImplementedError
 
@@ -274,7 +285,36 @@ class WindowEngine:
 
         Store it on self._window, remember it as self._last_known_export_price
         (persist that -- it should survive a restart), and if a window was
-        waiting to close on this price, close it now.
+        waiting to close on this price (and curtailment has locked too),
+        close it now.
+        """
+        raise NotImplementedError
+
+    @callback
+    def _async_curtailment_changed(self, event: Any) -> None:
+        """Handle a state change on the curtailment source (Addendum 1).
+
+        IMPLEMENT ME.
+
+        The mirror image of _async_export_price_changed:
+
+            - "on" -> True, "off" -> False; anything else (unavailable,
+              unknown) -> return. Never guess a curtailment state.
+            - store it as self._window.tentative_curtailed.
+            - if the grace period has already elapsed and nothing was locked
+              yet, lock immediately (late-arrival path).
+        """
+        raise NotImplementedError
+
+    @callback
+    def _lock_curtailment(self, curtailed: bool) -> None:
+        """Fix the curtailment state for the window in progress.
+
+        IMPLEMENT ME.
+
+        Store it as self._window.locked_curtailed, and if a window was
+        waiting to close on it (and the export price has locked too), close
+        it now.
         """
         raise NotImplementedError
 
@@ -284,13 +324,15 @@ class WindowEngine:
         IMPLEMENT ME.
 
         Order matters:
-            1. If no export price has locked for this window yet, DO NOT
-               close. Leave the snapshots untouched so energy keeps
-               accumulating into the extended window, and let the eventual
-               _lock_export_price() call finish the job.
+            1. If the export price or the curtailment state has not locked
+               for this window yet, DO NOT close. Leave the snapshots
+               untouched so energy keeps accumulating into the extended
+               window, and let whichever lock arrives last finish the job.
             2. deltas = self._collect_deltas()
             3. energy = self._aggregate(deltas)
-            4. run calc.calculate_energy_splits / calculate_financial_splits
+            4. run calc.calculate_energy_splits / calculate_financial_splits,
+               with treat_solar_as_free = the hub's CONF_TREAT_SOLAR_AS_FREE
+               checkbox OR this window's locked_curtailed
             5. hand the results to whatever the sensor platform registered
                (see async_add_listener below)
             6. open the fresh window: new prices, reset grace timer via

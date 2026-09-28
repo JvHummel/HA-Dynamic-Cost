@@ -27,6 +27,7 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_CURRENCY,
+    CONF_CURTAILMENT_SOURCE,
     CONF_DEVICE_NAME,
     CONF_EXPORT_SENSOR,
     CONF_EXPORT_PRICE_SENSOR,
@@ -36,12 +37,11 @@ from .const import (
     CONF_IMPORT_SENSOR,
     CONF_IMPORT_PRICE_SENSOR,
     CONF_IMPORT_TARIFF,
-    CONF_OPPORTUNITY_COST_MODE,
     CONF_TARIFF_MODE,
+    CONF_TREAT_SOLAR_AS_FREE,
     CONF_WINDOW_MINUTES,
     DOMAIN,
     DeviceType,
-    OpportunityCostMode,
     TariffMode,
 )
 
@@ -54,6 +54,13 @@ ENERGY_SENSOR_SELECTOR = selector.EntitySelector(
 
 PRICE_SENSOR_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="sensor")
+)
+
+# Anything with an on/off state the user's automations can drive.
+CURTAILMENT_SOURCE_SELECTOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(
+        domain=["input_boolean", "switch", "binary_sensor"]
+    )
 )
 
 
@@ -118,13 +125,17 @@ class DynamicCostConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_options(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Steps 3 and 4: opportunity-cost mode and currency.
+        """Steps 3 and 4: solar-to-battery accounting and currency.
 
         IMPLEMENT ME.
 
-        CONF_OPPORTUNITY_COST_MODE is a single required choice over the three
-        OpportunityCostMode values -- render it as radio buttons via
-        SelectSelectorMode.LIST rather than a dropdown.
+        CONF_TREAT_SOLAR_AS_FREE is a checkbox (selector.BooleanSelector),
+        off by default.
+
+        CONF_CURTAILMENT_SOURCE uses CURTAILMENT_SOURCE_SELECTOR and must be
+        vol.Optional, not vol.Required: leaving it empty means "never
+        curtailed". An empty optional field is simply absent from user_input,
+        so the engine should read it with .get() and treat None as no source.
 
         Finish with self.async_create_entry(title=..., data=self._data).
         """
