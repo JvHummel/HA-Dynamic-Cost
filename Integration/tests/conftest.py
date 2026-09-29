@@ -15,6 +15,7 @@ def auto_enable_custom_integrations(enable_custom_integrations):
     integration is invisible to the test hass instance.
     """
     yield
+# end auto_enable_custom_integrations
 
 
 @pytest.fixture
@@ -23,3 +24,4 @@ def simulator(hass):
     from .simulator import Simulator
 
     return Simulator(hass)
+# end simulator

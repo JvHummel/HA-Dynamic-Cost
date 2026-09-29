@@ -55,7 +55,7 @@ HouseEnergyUsageCost = GridToHouseCost + SolarToHouseSavings + BatteryToHouseSav
 `SolarToBatteryCost` is an opportunity cost: solar stored in the battery could have been exported instead, so it is valued at the export price. It is deliberately not clamped, so a negative export price gives a negative cost, because storing that energy avoided paying to export it. It is zero when solar counts as free. There are two ways that can happen:
 
 - **The user never counts it.** A hub checkbox, "Treat solar to battery energy as free".
-- **The installation was curtailed during the window.** Curtailed PV could not have exported that energy, so storing it cost nothing. The integration doesn't guess when curtailment is happening. The user may not know either, and it isn't always driven by negative prices; a grid operator can remotely curtail installations to balance the grid, for example. Instead, each hub can name a curtailment source: an entity the user's own automations switch on and off, fed from whatever API or logic tells them curtailment is active.
+- **The installation was curtailed during the window.** Curtailed PV could not have exported that energy, so storing it cost nothing. The integration doesn't guess when curtailment is happening. The user may not know either, and it isn't always driven by negative prices; a grid operator can remotely curtail installations to balance the grid, for example. Instead, each hub can name a curtailment source: an entity the user's own automations switch on and off, fed from whatever API or logic tells them curtailment is active. This applies to fixed and dynamic tariffs alike, since operators can curtail regardless of contract type. Hubs with the checkbox on don't track curtailment, since solar already counts as free there.
 
 The calculation engine only sees the combined `TreatSolarAsFree`; which of the two caused it is the window engine's business.
 
@@ -67,14 +67,17 @@ Keep the `MAX(0, …)` clamps. They do more than absorb meter jitter: a negative
 
 A hub is a normal config entry; each device is a config subentry nested under it — addable, editable, and removable from the hub's own page without re-running hub setup. No limit on hubs, and no limit on devices (of any type) per hub.
 
+Home Assistant forms can't show or hide a field based on another field in the same form, so conditional fields get their own step, and the flow skips that step when it doesn't apply.
+
 | Step | Field(s) | Notes |
 | --- | --- | --- |
 | 1 | Grid import sensor, grid export sensor | Both mandatory; picker restricted to `device_class: energy` entities |
 | 2 | Tariff mode | Fixed or Dynamic — branches the next step |
 | 2a (Fixed) | Import tariff, export tariff, tracking window (minutes) | Tariffs in currency/kWh; window duration drives the fixed timer |
 | 2b (Dynamic) | Import price sensor, export price sensor | Window boundaries follow the import price sensor |
-| 3 | Treat solar to battery energy as free; curtailment source | Checkbox, off by default. Curtailment source is optional: an entity picker limited to `input_boolean`, `switch` and `binary_sensor`. Empty means never curtailed; hubs may share one entity |
+| 3 | Treat solar to battery energy as free | Checkbox, off by default |
 | 4 | Currency | Sets `native_unit_of_measurement` for every monetary sensor under this hub |
+| 5 (checkbox off) | Curtailment source | Optional entity picker limited to `input_boolean`, `switch` and `binary_sensor`. Empty means never curtailed; hubs may share one entity. Offered in both tariff modes; skipped entirely with the checkbox on |
 
 | Device type | Sensors required | Tracks |
 | --- | --- | --- |
@@ -125,7 +128,7 @@ on_grace_period_elapsed():
 
 If the window is ready to close (import price changed) but export price for it never locked, the window is **not** closed — energy keeps accumulating into the extended window until export price locks, at which point it settles and closes normally.
 
-The curtailment signal uses the same mechanism as export price: read tentatively at window open, updated by changes during the 60-second grace period, locked when the grace period elapses. If the source is unavailable, it locks on the first real reading, and the window cannot close until it has. With no source configured, every window counts as uncurtailed and nothing waits. Any on/off entity the user's automations can drive works as a source; the integration doesn't own the switch.
+The curtailment signal uses the same mechanism as export price: read tentatively at window open, updated by changes during the 60-second grace period, locked when the grace period elapses. If the source is unavailable, it locks on the first real reading, and the window cannot close until it has. With no source configured, every window counts as uncurtailed and nothing waits. The config flow only saves a source when the checkbox is off, so the engine just checks whether one is configured. Any on/off entity the user's automations can drive works as a source; the integration doesn't own the switch.
 
 When a window closes, the engine passes `TreatSolarAsFree = hub checkbox OR locked curtailment state` to the calculation engine.
 
@@ -199,6 +202,7 @@ Development runs in VS Code against a project virtualenv and in-process tests; n
 | Private members | `_leading_underscore` |
 | Module constants | `UPPER_SNAKE_CASE` |
 | Classes | `UpperCamelCase` |
+| Block ends | An `# end …` comment at the block's own indentation: `# end <name>` after every function and class, `# end if` / `# end match` after every if-chain and match, and `# end for` / `while` / `with` / `try` after those blocks when they span 5+ lines. Trailing comments inside a block stay above it |
 
 ## Working agreement for Claude sessions
 
@@ -208,5 +212,6 @@ The skeleton's `IMPLEMENT ME` bodies are the author's practice exercises: guide,
 - When the design changes, updating the skeleton's scaffolding to match is fair game for Claude: constants, signatures, stubs and their docstrings, tests, config-flow fields, `strings.json`, and the simulator. The function bodies stay exercises.
 - The author is new to Python, Home Assistant, and Linux, coming from C, assembly, and Delphi Pascal — explain idioms by contrast with those where it helps.
 - This doc describes the current design, as if it had always been that way. A new idea may start as a numbered addendum while it's evaluated together; once agreed, it's woven into the relevant sections and the addendum is removed before anything is implemented.
+- Before acting on a proposed change, check it against this doc. Point out anything it contradicts or makes obsolete, including the reasoning behind earlier decisions, and settle that first.
 - Code-level follow-ups go in `# TODO:` comments at the spot, not in this doc.
 - Run the tests and read failures directly rather than asking for pasted output.

@@ -26,6 +26,7 @@ class WindowEnergy:
     grid_export: float = 0.0
     battery_charge: float = 0.0
     battery_discharge: float = 0.0
+# end WindowEnergy
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +41,7 @@ class EnergySplits:
     grid_to_house: float
     battery_to_house: float
     battery_to_grid: float
+# end EnergySplits
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +58,7 @@ class FinancialSplits:
     grid_to_house_cost: float
     battery_to_house_savings: float
     battery_to_grid_profit: float
+# end FinancialSplits
 
 
 def calculate_energy_splits(energy: WindowEnergy) -> EnergySplits:
@@ -101,6 +104,7 @@ def calculate_energy_splits(energy: WindowEnergy) -> EnergySplits:
     )
 
     raise NotImplementedError
+# end calculate_energy_splits
 
 
 def calculate_solar_to_battery_cost(
@@ -126,8 +130,10 @@ def calculate_solar_to_battery_cost(
     """
     if treat_solar_as_free:
         export_price = 0
+    # end if
 
     return solar_to_battery * export_price
+# end calculate_solar_to_battery_cost
 
 
 def calculate_financial_splits(
@@ -166,6 +172,7 @@ def calculate_financial_splits(
         solar_to_grid_profit     = solar_to_grid_profit,
         solar_to_house_savings   = solar_to_house_savings
     )
+# end calculate_financial_splits
 
 def calculate_device_value(
     energy_delta: float,
@@ -179,3 +186,4 @@ def calculate_device_value(
     sign conventions only ever have to change in one place.
     """
     return energy_delta * price
+# end calculate_device_value

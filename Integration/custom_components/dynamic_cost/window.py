@@ -54,6 +54,7 @@ class Device:
     name: str
     import_sensor: str | None = None
     export_sensor: str | None = None
+# end Device
 
 
 @dataclass
@@ -63,6 +64,7 @@ class TrackedSensor:
     entity_id: str
     snapshot: float | None = None
     unavailable_logged: bool = False
+# end TrackedSensor
 
 
 @dataclass
@@ -76,6 +78,7 @@ class WindowState:
     locked_curtailed: bool | None = None
     grace_elapsed: bool = False
     cancel_grace: Callable[[], None] | None = None
+# end WindowState
 
 
 class WindowEngine:
@@ -98,6 +101,7 @@ class WindowEngine:
         self._window = WindowState()
         self._unsubscribes: list[Callable[[], None]] = []
         self._last_known_export_price: float | None = None
+    # end __init__
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -109,7 +113,7 @@ class WindowEngine:
                     async_track_state_change_event( 
                         self._hass,
                         self._config.get(CONF_IMPORT_PRICE_SENSOR),
-                        self._async_import_price_changed
+                        self._async_import_price_changed,
                     )
                 )
 
@@ -117,7 +121,7 @@ class WindowEngine:
                     async_track_state_change_event( 
                         self._hass,
                         self._config.get(CONF_EXPORT_PRICE_SENSOR),
-                        self._async_export_price_changed
+                        self._async_export_price_changed,
                     )
                 )
 
@@ -126,38 +130,57 @@ class WindowEngine:
                     async_track_time_interval(
                         self._hass,
                         self._async_boundary_reached,
-                        self._config.get(CONF_WINDOW_MINUTES) * 60
+                        self._config.get(CONF_WINDOW_MINUTES) * 60,
                     )
                 )
 
             case _:
                 # Future modes?
                 raise NotImplementedError
+        # end match
 
-        # TODO: Addendum 1 -- when CONF_CURTAILMENT_SOURCE is set, also track
-        # it with self._async_curtailment_changed (in both tariff modes).
+        # Curtailment switch is relevant for both contract types.
+        curtailment_switch = self._config.get(CONF_CURTAILMENT_SOURCE)
 
+
+        if curtailment_switch is not None:
+            self._unsubscribes.append(
+                async_track_state_change_event( 
+                    self._hass,
+                    curtailment_switch,
+                    self._async_curtailment_changed,
+                )
+            )
+        # end if
+    # end async_start
 
     @callback
     def async_stop(self) -> None:
         """Tear down every listener and timer.
 
-        IMPLEMENT ME.
-
         Call each callable in self._unsubscribes, clear the list, and cancel
         the grace-period timer if one is pending. Getting this right is what
         stops duplicate listeners piling up when the user reloads the entry.
         """
-        raise NotImplementedError
+        for unsubscribe in self._unsubscribes:
+            unsubscribe()
+
+        self._unsubscribes.clear()
+
+        self._window.cancel_grace()
+    # end async_stop
+
+
 
     @callback
     def _open_window(self, import_price: float | None) -> None:
         """Start a fresh window: new WindowState, new grace timer."""
         if self._window.cancel_grace is not None:
             self._window.cancel_grace()
+        # end if
 
         self._window = WindowState(import_price=import_price)
-        # TODO: Addendum 1 -- read the curtailment source tentatively here.
+        # TODO: read the curtailment source tentatively here.
         # With no source configured, lock it as False straight away so the
         # window never waits on it.
 
@@ -166,6 +189,7 @@ class WindowEngine:
             EXPORT_PRICE_GRACE_SECONDS,
             self._async_grace_elapsed
         )
+    # end _open_window
 
 
     # -- sensor reading ----------------------------------------------------
@@ -185,6 +209,7 @@ class WindowEngine:
         stays down for hours floods the log.
         """
         raise NotImplementedError
+    # end _read_sensor
 
     def _collect_deltas(self) -> dict[str, float]:
         """Read every tracked sensor once and turn it into this window's delta.
@@ -216,6 +241,7 @@ class WindowEngine:
         WindowEnergy.
         """
         raise NotImplementedError
+    # end _collect_deltas
 
     def _aggregate(self, deltas: dict[str, float]) -> WindowEnergy:
         """Sum per-device deltas into the hub-level categories.
@@ -231,6 +257,7 @@ class WindowEngine:
         sub-metering and must not influence the splits.
         """
         raise NotImplementedError
+    # end _aggregate
 
     # -- window boundaries -------------------------------------------------
 
@@ -248,6 +275,7 @@ class WindowEngine:
               and open a new one with this price.
         """
         raise NotImplementedError
+    # end _async_import_price_changed
 
     @callback
     def _async_export_price_changed(self, event: Any) -> None:
@@ -263,6 +291,7 @@ class WindowEngine:
               unblock a window minutes later.
         """
         raise NotImplementedError
+    # end _async_export_price_changed
 
     @callback
     def _async_grace_elapsed(self, _now: Any) -> None:
@@ -277,6 +306,7 @@ class WindowEngine:
             - same again for tentative_curtailed (see _lock_curtailment).
         """
         raise NotImplementedError
+    # end _async_grace_elapsed
 
     @callback
     def _lock_export_price(self, price: float) -> None:
@@ -290,10 +320,11 @@ class WindowEngine:
         close it now.
         """
         raise NotImplementedError
+    # end _lock_export_price
 
     @callback
     def _async_curtailment_changed(self, event: Any) -> None:
-        """Handle a state change on the curtailment source (Addendum 1).
+        """Handle a state change on the curtailment source (either tariff mode).
 
         IMPLEMENT ME.
 
@@ -306,6 +337,7 @@ class WindowEngine:
               yet, lock immediately (late-arrival path).
         """
         raise NotImplementedError
+    # end _async_curtailment_changed
 
     @callback
     def _lock_curtailment(self, curtailed: bool) -> None:
@@ -318,6 +350,7 @@ class WindowEngine:
         it now.
         """
         raise NotImplementedError
+    # end _lock_curtailment
 
     async def _async_boundary_reached(self, _now: Any = None) -> None:
         """Close the current window and open the next one.
@@ -340,6 +373,7 @@ class WindowEngine:
                async_call_later(hass, EXPORT_PRICE_GRACE_SECONDS, ...)
         """
         raise NotImplementedError
+    # end _async_boundary_reached
 
     # -- plumbing for the sensor platform ----------------------------------
 
@@ -354,3 +388,5 @@ class WindowEngine:
         entities follow one data source without each of them polling.
         """
         raise NotImplementedError
+    # end async_add_listener
+# end WindowEngine

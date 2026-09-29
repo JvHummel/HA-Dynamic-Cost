@@ -48,6 +48,7 @@ async def async_setup_entry(
     go negative -- that is exactly why this does not build on utility_meter.
     """
     raise NotImplementedError
+# end async_setup_entry
 
 
 class DynamicCostSplitSensor(SensorEntity):
@@ -67,6 +68,7 @@ class DynamicCostSplitSensor(SensorEntity):
         customisations across restarts.
         """
         raise NotImplementedError
+    # end __init__
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to the engine so this entity updates when a window settles.
@@ -79,6 +81,7 @@ class DynamicCostSplitSensor(SensorEntity):
         so a restart does not zero everything.
         """
         raise NotImplementedError
+    # end async_added_to_hass
 
     @property
     def native_value(self) -> float | None:
@@ -87,3 +90,5 @@ class DynamicCostSplitSensor(SensorEntity):
         IMPLEMENT ME.
         """
         raise NotImplementedError
+    # end native_value
+# end DynamicCostSplitSensor

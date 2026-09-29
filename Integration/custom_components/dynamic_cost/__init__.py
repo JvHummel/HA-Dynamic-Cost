@@ -58,6 +58,7 @@ async def async_setup_entry(
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
+# end async_setup_entry
 
 
 async def async_unload_entry(
@@ -67,7 +68,9 @@ async def async_unload_entry(
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         entry.runtime_data.async_stop()
+    # end if
     return unload_ok
+# end async_unload_entry
 
 
 async def async_reload_entry(
@@ -75,3 +78,4 @@ async def async_reload_entry(
 ) -> None:
     """Reload when the user edits options or adds/removes a device."""
     await hass.config_entries.async_reload(entry.entry_id)
+# end async_reload_entry

@@ -27,6 +27,7 @@ def test_all_solar_goes_to_house():
     assert splits.solar_to_house == pytest.approx(5.0)
     assert splits.solar_to_battery == pytest.approx(0.0)
     assert splits.solar_to_grid == pytest.approx(0.0)
+# end test_all_solar_goes_to_house
 
 
 def test_solar_splits_never_exceed_production():
@@ -39,6 +40,7 @@ def test_solar_splits_never_exceed_production():
 
     total = splits.solar_to_house + splits.solar_to_battery + splits.solar_to_grid
     assert total == pytest.approx(energy.solar)
+# end test_solar_splits_never_exceed_production
 
 
 def test_import_at_negative_price_earns_money():
@@ -51,6 +53,7 @@ def test_import_at_negative_price_earns_money():
         treat_solar_as_free=False,
     )
     assert money.grid_import_cost == pytest.approx(-0.20)
+# end test_import_at_negative_price_earns_money
 
 
 @pytest.mark.parametrize(
@@ -66,6 +69,7 @@ def test_solar_to_battery_cost(treat_solar_as_free, export_price, expected):
     """Free means zero; otherwise the cost follows the export price's sign."""
     result = calculate_solar_to_battery_cost(5.0, export_price, treat_solar_as_free)
     assert result == pytest.approx(expected)
+# end test_solar_to_battery_cost
 
 
 # ---------------------------------------------------------------------------
@@ -86,6 +90,7 @@ def test_battery_discharge_covers_house_when_no_solar():
     assert splits.battery_to_house   == pytest.approx(2.9)
     assert splits.grid_to_battery    == pytest.approx(0)
     assert splits.grid_to_house      == pytest.approx(0.05)
+# end test_battery_discharge_covers_house_when_no_solar
 
 
 def test_house_energy_usage_cost_blends_three_streams():
@@ -104,3 +109,4 @@ def test_house_energy_usage_cost_blends_three_streams():
     )
 
     assert money.house_energy_usage_cost == pytest.approx(0.75)
+# end test_house_energy_usage_cost_blends_three_streams

@@ -42,6 +42,7 @@ class TariffMode(StrEnum):
 
     FIXED = "fixed"
     DYNAMIC = "dynamic"
+# end TariffMode
 
 
 class DeviceType(StrEnum):
@@ -50,6 +51,7 @@ class DeviceType(StrEnum):
     GENERAL = "general"      # import sensor only
     SOLAR = "solar"          # export sensor only
     BATTERY = "battery"      # both
+# end DeviceType
 
 
 # Subentry types must be registered under these exact strings.

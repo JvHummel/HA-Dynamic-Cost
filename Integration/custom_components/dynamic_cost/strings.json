@@ -32,11 +32,18 @@
         "title": "Accounting options",
         "data": {
           "treat_solar_as_free": "Treat solar to battery energy as free",
-          "curtailment_source": "Curtailment source",
           "currency": "Currency"
         },
         "data_description": {
-          "treat_solar_as_free": "When on, solar energy stored in the battery is never valued at the export price.",
+          "treat_solar_as_free": "When on, solar energy stored in the battery is never valued at the export price."
+        }
+      },
+      "curtailment": {
+        "title": "Curtailment",
+        "data": {
+          "curtailment_source": "Curtailment source"
+        },
+        "data_description": {
           "curtailment_source": "Optional. A switch or boolean that is on while your solar output is being curtailed; solar stored during those windows counts as free. Leave empty if you never curtail."
         }
       }

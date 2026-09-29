@@ -5,7 +5,7 @@ the least interesting logically, so leave it until the maths underneath it is
 already proven.
 
 Structure:
-  DynamicCostConfigFlow  -- the hub setup wizard (steps 1-4 of the plan)
+  DynamicCostConfigFlow  -- the hub setup wizard (steps 1-5 of the plan)
   GeneralSubentryFlow    -- "add a general device"
   SolarSubentryFlow      -- "add solar panels"
   BatterySubentryFlow    -- "add a battery"
@@ -29,13 +29,13 @@ from .const import (
     CONF_CURRENCY,
     CONF_CURTAILMENT_SOURCE,
     CONF_DEVICE_NAME,
-    CONF_EXPORT_SENSOR,
     CONF_EXPORT_PRICE_SENSOR,
+    CONF_EXPORT_SENSOR,
     CONF_EXPORT_TARIFF,
     CONF_GRID_EXPORT_SENSOR,
     CONF_GRID_IMPORT_SENSOR,
-    CONF_IMPORT_SENSOR,
     CONF_IMPORT_PRICE_SENSOR,
+    CONF_IMPORT_SENSOR,
     CONF_IMPORT_TARIFF,
     CONF_TARIFF_MODE,
     CONF_TREAT_SOLAR_AS_FREE,
@@ -72,6 +72,7 @@ class DynamicCostConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         """Hold answers across the multi-step flow."""
         self._data: dict[str, Any] = {}
+    # end __init__
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -91,6 +92,7 @@ class DynamicCostConfigFlow(ConfigFlow, domain=DOMAIN):
         briefly-unavailable sensor is not necessarily misconfigured.
         """
         raise NotImplementedError
+    # end async_step_user
 
     async def async_step_tariff(
         self, user_input: dict[str, Any] | None = None
@@ -103,6 +105,7 @@ class DynamicCostConfigFlow(ConfigFlow, domain=DOMAIN):
         async_step_dynamic() depending on the answer.
         """
         raise NotImplementedError
+    # end async_step_tariff
 
     async def async_step_fixed(
         self, user_input: dict[str, Any] | None = None
@@ -112,6 +115,7 @@ class DynamicCostConfigFlow(ConfigFlow, domain=DOMAIN):
         IMPLEMENT ME. Then continue to async_step_options().
         """
         raise NotImplementedError
+    # end async_step_fixed
 
     async def async_step_dynamic(
         self, user_input: dict[str, Any] | None = None
@@ -121,6 +125,7 @@ class DynamicCostConfigFlow(ConfigFlow, domain=DOMAIN):
         IMPLEMENT ME. Then continue to async_step_options().
         """
         raise NotImplementedError
+    # end async_step_dynamic
 
     async def async_step_options(
         self, user_input: dict[str, Any] | None = None
@@ -132,14 +137,31 @@ class DynamicCostConfigFlow(ConfigFlow, domain=DOMAIN):
         CONF_TREAT_SOLAR_AS_FREE is a checkbox (selector.BooleanSelector),
         off by default.
 
-        CONF_CURTAILMENT_SOURCE uses CURTAILMENT_SOURCE_SELECTOR and must be
-        vol.Optional, not vol.Required: leaving it empty means "never
-        curtailed". An empty optional field is simply absent from user_input,
-        so the engine should read it with .get() and treat None as no source.
+        Then branch: with the checkbox off (either tariff mode), continue to
+        async_step_curtailment(). Otherwise finish here with
+        self.async_create_entry(title=..., data=self._data) -- no curtailment
+        source is saved at all.
+        """
+        raise NotImplementedError
+    # end async_step_options
+
+    async def async_step_curtailment(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Step 5: curtailment source (checkbox off only, either tariff mode).
+
+        IMPLEMENT ME.
+
+        A form with the single field CONF_CURTAILMENT_SOURCE, using
+        CURTAILMENT_SOURCE_SELECTOR. It must be vol.Optional, not
+        vol.Required: leaving it empty means "never curtailed". An empty
+        optional field is simply absent from user_input, so the engine reads
+        it with .get() and treats None as no source.
 
         Finish with self.async_create_entry(title=..., data=self._data).
         """
         raise NotImplementedError
+    # end async_step_curtailment
 
     @classmethod
     @callback
@@ -156,6 +178,8 @@ class DynamicCostConfigFlow(ConfigFlow, domain=DOMAIN):
             DeviceType.SOLAR: SolarSubentryFlow,
             DeviceType.BATTERY: BatterySubentryFlow,
         }
+    # end async_get_supported_subentry_types
+# end DynamicCostConfigFlow
 
 
 class GeneralSubentryFlow(ConfigSubentryFlow):
@@ -173,6 +197,8 @@ class GeneralSubentryFlow(ConfigSubentryFlow):
         the hub's split calculations.
         """
         raise NotImplementedError
+    # end async_step_user
+# end GeneralSubentryFlow
 
 
 class SolarSubentryFlow(ConfigSubentryFlow):
@@ -186,6 +212,8 @@ class SolarSubentryFlow(ConfigSubentryFlow):
         IMPLEMENT ME.
         """
         raise NotImplementedError
+    # end async_step_user
+# end SolarSubentryFlow
 
 
 class BatterySubentryFlow(ConfigSubentryFlow):
@@ -199,3 +227,5 @@ class BatterySubentryFlow(ConfigSubentryFlow):
         IMPLEMENT ME.
         """
         raise NotImplementedError
+    # end async_step_user
+# end BatterySubentryFlow
