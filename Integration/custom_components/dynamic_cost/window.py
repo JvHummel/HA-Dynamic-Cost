@@ -10,8 +10,9 @@ Build this SECOND, after calc.py is finished and tested.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers.event import (
@@ -22,9 +23,9 @@ from homeassistant.helpers.event import (
 
 from .calc import WindowEnergy
 from .const import (
+    CONF_CURTAILMENT_SOURCE,
     CONF_EXPORT_PRICE_SENSOR,
     CONF_IMPORT_PRICE_SENSOR,
-    CONF_CURTAILMENT_SOURCE,
     CONF_TARIFF_MODE,
     CONF_TREAT_SOLAR_AS_FREE,
     CONF_WINDOW_MINUTES,
