@@ -10,11 +10,17 @@ Build this SECOND, after calc.py is finished and tested.
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from homeassistant.core import HomeAssistant, State, callback
+from homeassistant.const import (
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN
+)
+
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_state_change_event,
@@ -152,6 +158,8 @@ class WindowEngine:
                 )
             )
         # end if
+
+        #_open_window(self)
     # end async_start
 
     @callback
@@ -167,7 +175,9 @@ class WindowEngine:
 
         self._unsubscribes.clear()
 
-        self._window.cancel_grace()
+        if self._window.cancel_grace is not None:
+            self._window.cancel_grace()
+
     # end async_stop
 
 
@@ -194,21 +204,67 @@ class WindowEngine:
 
     # -- sensor reading ----------------------------------------------------
 
-    def _read_sensor(self, tracked: TrackedSensor) -> float | None:
+    def _read_entity_state(self, entity_id: str) -> float | None:
         """Read one sensor's current numeric value, or None if unavailable.
-
-        IMPLEMENT ME.
-
-        Fetch the state via self._hass.states.get(tracked.entity_id). Return
+        
+        Fetch the state via self._hass.states.get(entity_id). Return
         None if the state is missing, is STATE_UNKNOWN/STATE_UNAVAILABLE, or
         does not parse as a float.
+        """
+        entity_value = None
+        
+        entity_state = self._hass.states.get(entity_id)
 
-        Also handle the edge-triggered logging here (or call the helpers
-        below): log a warning the first time a sensor goes unavailable and an
+        is_available = ((entity_state is not None) and
+                        (entity_state.state != STATE_UNAVAILABLE) and
+                        (entity_state.state != STATE_UNKNOWN))            
+
+        if is_available:
+            try:
+                entity_value = float(entity_state.state)
+
+                if not math.isfinite(entity_value):
+                    return None
+                # end if
+            except (ValueError, TypeError):
+                return None # parse failed
+            # end try
+        # end if
+
+        return entity_value
+    # end _read_entity_state
+
+    def _read_sensor(self, tracked: TrackedSensor) -> float | None:
+        """Read one sensor's current numeric value, or None if unavailable.
+        
+        Also handle the edge-triggered logging here: log a warning the first
+        time a sensor goes unavailable and an
         info line when it recovers -- never once per window, or a sensor that
         stays down for hours floods the log.
         """
-        raise NotImplementedError
+        value = self._read_entity_state(tracked.entity_id)
+
+        if value is not None:
+            if tracked.unavailable_logged:
+                _LOGGER.info(
+                    "%s recovered after being unavailable",
+                    tracked.entity_id
+                )
+
+                tracked.unavailable_logged = False
+            # end if
+        else:
+            if not tracked.unavailable_logged:
+                _LOGGER.warning(
+                    "%s unavailable, treating as 0 kWh until it recovers", 
+                    tracked.entity_id
+                )
+
+                tracked.unavailable_logged = True
+            # end if
+        # end if
+        
+        return value
     # end _read_sensor
 
     def _collect_deltas(self) -> dict[str, float]:
