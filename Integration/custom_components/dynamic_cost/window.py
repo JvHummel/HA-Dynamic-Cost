@@ -26,6 +26,7 @@ from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_interval,
 )
+from homeassistant.helpers.storage import Store
 
 from .calc import WindowEnergy
 from .const import (
@@ -35,7 +36,10 @@ from .const import (
     CONF_TARIFF_MODE,
     CONF_TREAT_SOLAR_AS_FREE,
     CONF_WINDOW_MINUTES,
+    DOMAIN,
     EXPORT_PRICE_GRACE_SECONDS,
+    SAVE_DELAY_SECONDS,
+    STORAGE_VERSION,
     DeviceType,
     TariffMode,
 )
@@ -44,6 +48,12 @@ _LOGGER = logging.getLogger(__name__)
 
 UNSET = object()
 """Sentinel: no export price or curtailment state captured for this window yet."""
+
+
+def storage_key(entry_id: str) -> str:
+    """Name of one hub's store file under .storage/ (plan: Persistence)."""
+    return f"{DOMAIN}.{entry_id}"
+# end storage_key
 
 
 @dataclass(frozen=True)
@@ -84,6 +94,12 @@ class WindowState:
     locked_curtailed: bool | None = None
     grace_elapsed: bool = False
     cancel_grace: Callable[[], None] | None = None
+    # A boundary was reached but a lock was still missing, so the window is
+    # held open; the lock that arrives last closes it.
+    close_pending: bool = False
+    # Dynamic mode: the import price the NEXT window opens with, taken from
+    # the price change that triggered the (possibly pending) boundary.
+    next_import_price: float | None = None
 # end WindowState
 
 
@@ -91,14 +107,19 @@ class WindowEngine:
     """Drives tracking windows for one hub."""
 
     def __init__(
-        self, hass: HomeAssistant, config: dict[str, Any], devices: list[Device]
+        self,
+        hass: HomeAssistant,
+        entry_id: str,
+        config: dict[str, Any],
+        devices: list[Device],
     ) -> None:
         """Store config and set up empty state. No listeners yet.
 
         config holds the hub's own settings (the CONF_* keys from the config
         flow); devices holds its subentries. You will want one TrackedSensor
         in self._sensors per sensor you read at a boundary: the hub's two grid
-        sensors plus every sensor of every device.
+        sensors plus every sensor of every device. entry_id is the hub's
+        config entry id, which names its store.
         """
         self._hass = hass
         self._config = config
@@ -106,13 +127,30 @@ class WindowEngine:
         self._sensors: dict[str, TrackedSensor] = {}
         self._window = WindowState()
         self._unsubscribes: list[Callable[[], None]] = []
-        self._last_known_export_price: float | None = None
+        # Cumulative totals: the hub-level split keys plus every device's
+        # counters, keyed however you like. The sensor platform reads them
+        # through get_total(). See the plan's Persistence section.
+        self._totals: dict[str, float] = {}
+        self._store: Store[dict[str, Any]] = Store(
+            hass, STORAGE_VERSION, storage_key(entry_id)
+        )
     # end __init__
 
     # -- lifecycle ---------------------------------------------------------
 
     async def async_start(self) -> None:
-        """Register listeners/timers and open the first window."""
+        """Register listeners/timers and open the first window if possible.
+
+        First of all, await self._async_restore(). A restored in-progress
+        window simply carries on, so the first-window rules below only apply
+        when there was nothing to restore.
+
+        Fixed mode: open the first window right away, at CONF_IMPORT_TARIFF.
+        Dynamic mode: read the import price sensor. A real reading opens the
+        first window at that price; no reading means no window yet, and
+        _async_import_price_changed opens the first one when a real price
+        arrives. (Plan: window engine, first window.)
+        """
         match self._config.get(CONF_TARIFF_MODE):
             case TariffMode.DYNAMIC:
                 self._unsubscribes.append(
@@ -190,7 +228,9 @@ class WindowEngine:
         # end if
 
         self._window = WindowState(import_price=import_price)
-        # TODO: read the curtailment source tentatively here.
+        # TODO: read the export price and the curtailment source tentatively
+        # here. Export price: the sensor in dynamic mode (plan:
+        # on_window_open), CONF_EXPORT_TARIFF in fixed mode.
         # With no source configured, lock it as False straight away so the
         # window never waits on it.
 
@@ -201,6 +241,76 @@ class WindowEngine:
         )
     # end _open_window
 
+
+    # -- persistence -------------------------------------------------------
+
+    async def _async_restore(self) -> None:
+        """Load this hub's store, if it has one.
+
+        IMPLEMENT ME.
+
+        await self._store.async_load() returns None on the very first start,
+        when no store exists yet: nothing to restore, and the plan's
+        first-window rules apply. Otherwise put the totals, the snapshots and
+        the in-progress window back (None back to UNSET where it applies).
+
+        The configuration may have changed while the hub was stopped.
+        Reconcile per the table in the plan's Persistence section:
+          - totals of devices whose subentry id no longer exists: drop them.
+            New devices simply have no totals yet.
+          - snapshots: keep only those whose entity id is still a tracked
+            sensor. A swapped or new sensor then has no snapshot, so its
+            first reading sets a fresh baseline.
+          - the in-progress window: restore it only if the stored copy of
+            the WINDOW_SETTINGS_KEYS settings equals the current config.
+            Otherwise discard it and let the first-window rules apply --
+            this is also how a switch of tariff type is picked up. Totals
+            are always kept.
+        """
+        raise NotImplementedError
+    # end _async_restore
+
+    @callback
+    def _schedule_save(self) -> None:
+        """Ask for a save soon. Call after every change worth surviving a restart.
+
+        IMPLEMENT ME.
+
+        Use self._store.async_delay_save() with self._data_to_save and
+        SAVE_DELAY_SECONDS. Calls within the delay collapse into one write,
+        and Home Assistant flushes a pending write at shutdown.
+        """
+        raise NotImplementedError
+    # end _schedule_save
+
+    @callback
+    def _data_to_save(self) -> dict[str, Any]:
+        """Everything the store keeps, as plain JSON-friendly values.
+
+        IMPLEMENT ME.
+
+        The totals, every TrackedSensor's snapshot together with the entity
+        id it belongs to, the in-progress window, and a copy of the
+        WINDOW_SETTINGS_KEYS settings it was opened under (_async_restore
+        compares that copy with the config). JSON only knows dicts,
+        lists, strings, numbers, booleans and null, so leave out cancel_grace
+        (a function) and turn UNSET into None.
+        """
+        raise NotImplementedError
+    # end _data_to_save
+
+    async def async_save_now(self) -> None:
+        """Write the store immediately. Called on unload, after async_stop().
+
+        IMPLEMENT ME. One await of self._store.async_save() with
+        self._data_to_save(); it also cancels any delayed save still pending.
+
+        Without this, a reload races itself: the old engine's delayed save
+        can land after the new engine has already loaded the store, and
+        overwrite whatever the new engine wrote.
+        """
+        raise NotImplementedError
+    # end async_save_now
 
     # -- sensor reading ----------------------------------------------------
 
@@ -326,9 +436,13 @@ class WindowEngine:
             - unavailable/unparseable new value -> return, do nothing at all.
               The window simply stays open (per the plan, an unavailable price
               is treated as 'no change', never as a boundary).
+            - no window open yet (first start, price was unavailable) -> open
+              the first window with this price. Nothing to close.
             - value equal to the current window's import price -> return.
-            - otherwise -> this is a real boundary: close the current window
-              and open a new one with this price.
+            - otherwise -> this is a real boundary: store the price as
+              self._window.next_import_price and call the boundary. If the
+              window is already held open waiting on a lock, this just
+              updates next_import_price -- the latest price wins.
         """
         raise NotImplementedError
     # end _async_import_price_changed
@@ -370,10 +484,9 @@ class WindowEngine:
 
         IMPLEMENT ME.
 
-        Store it on self._window, remember it as self._last_known_export_price
-        (persist that -- it should survive a restart), and if a window was
-        waiting to close on this price (and curtailment has locked too),
-        close it now.
+        Store it on self._window, call self._schedule_save() (a locked price
+        must survive a restart), and if self._window.close_pending (and
+        curtailment has locked too), close the window now.
         """
         raise NotImplementedError
     # end _lock_export_price
@@ -401,9 +514,9 @@ class WindowEngine:
 
         IMPLEMENT ME.
 
-        Store it as self._window.locked_curtailed, and if a window was
-        waiting to close on it (and the export price has locked too), close
-        it now.
+        Store it as self._window.locked_curtailed, call
+        self._schedule_save(), and if self._window.close_pending (and the
+        export price has locked too), close the window now.
         """
         raise NotImplementedError
     # end _lock_curtailment
@@ -415,23 +528,36 @@ class WindowEngine:
 
         Order matters:
             1. If the export price or the curtailment state has not locked
-               for this window yet, DO NOT close. Leave the snapshots
-               untouched so energy keeps accumulating into the extended
-               window, and let whichever lock arrives last finish the job.
+               for this window yet, DO NOT close: set close_pending and
+               return. Leave the snapshots untouched so energy keeps
+               accumulating into the extended window, and let whichever lock
+               arrives last finish the job.
             2. deltas = self._collect_deltas()
             3. energy = self._aggregate(deltas)
-            4. run calc.calculate_energy_splits / calculate_financial_splits,
-               with treat_solar_as_free = the hub's CONF_TREAT_SOLAR_AS_FREE
+            4. run calc.calculate_energy_splits / calculate_financial_splits
+               at this window's import price and locked export price, with
+               treat_solar_as_free = the hub's CONF_TREAT_SOLAR_AS_FREE
                checkbox OR this window's locked_curtailed
-            5. hand the results to whatever the sensor platform registered
-               (see async_add_listener below)
-            6. open the fresh window: new prices, reset grace timer via
-               async_call_later(hass, EXPORT_PRICE_GRACE_SECONDS, ...)
+            5. per-device counters (plan: entities, device-level): every
+               device's energy per sensor, including GENERAL devices; value
+               only for GENERAL devices, via calc.calculate_device_value()
+               at this window's import price
+            6. add the results to self._totals, then tell whatever the
+               sensor platform registered (see async_add_listener below)
+            7. open the fresh window via self._open_window(): at
+               next_import_price in dynamic mode, CONF_IMPORT_TARIFF in fixed
+            8. self._schedule_save()
         """
         raise NotImplementedError
     # end _async_boundary_reached
 
     # -- plumbing for the sensor platform ----------------------------------
+
+    @callback
+    def get_total(self, key: str) -> float:
+        """Current cumulative total for one key, for the sensor platform."""
+        return self._totals.get(key, 0.0)
+    # end get_total
 
     @callback
     def async_add_listener(self, update_callback: Callable[[], None]) -> Callable[[], None]:

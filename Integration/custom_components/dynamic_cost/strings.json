@@ -11,7 +11,9 @@
       },
       "tariff": {
         "title": "Tariffs",
-        "data": { "tariff_mode": "Tariff type" }
+        "data": {
+          "tariff_mode": "Tariff type"
+        }
       },
       "fixed": {
         "title": "Fixed tariffs",
@@ -38,6 +40,10 @@
           "treat_solar_as_free": "When on, solar energy stored in the battery is never valued at the export price."
         }
       },
+      "confirm_unavailable": {
+        "title": "Sensor unavailable",
+        "description": "{sensors} currently reads unavailable. That can be temporary, so you can continue anyway, but check the sensor if it stays that way."
+      },
       "curtailment": {
         "title": "Curtailment",
         "data": {
@@ -46,13 +52,24 @@
         "data_description": {
           "curtailment_source": "Optional. A switch or boolean that is on while your solar output is being curtailed; solar stored during those windows counts as free. Leave empty if you never curtail."
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure hub",
+        "description": "Change this hub's sensors and settings. Your records are kept, also when you switch tariff type. The currency can't be changed.",
+        "data": {
+          "grid_import_sensor": "Grid import sensor (kWh)",
+          "grid_export_sensor": "Grid export sensor (kWh)"
+        }
       }
     },
     "error": {
       "unknown_entity": "That entity does not exist.",
       "not_numeric": "That sensor does not report a number."
     },
-    "abort": { "already_configured": "This hub is already configured." }
+    "abort": {
+      "already_configured": "This hub is already configured.",
+      "reconfigure_successful": "The hub has been updated."
+    }
   },
   "config_subentries": {
     "general": {
@@ -64,7 +81,21 @@
             "device_name": "Name",
             "import_sensor": "Energy used (kWh)"
           }
+        },
+        "reconfigure": {
+          "title": "Reconfigure general device",
+          "data": {
+            "device_name": "Name",
+            "import_sensor": "Energy used (kWh)"
+          }
         }
+      },
+      "abort": {
+        "reconfigure_successful": "The device has been updated."
+      },
+      "error": {
+        "unknown_entity": "That entity does not exist.",
+        "not_numeric": "That sensor does not report a number."
       }
     },
     "solar": {
@@ -76,7 +107,21 @@
             "device_name": "Name",
             "export_sensor": "Energy produced (kWh)"
           }
+        },
+        "reconfigure": {
+          "title": "Reconfigure solar panels",
+          "data": {
+            "device_name": "Name",
+            "export_sensor": "Energy produced (kWh)"
+          }
         }
+      },
+      "abort": {
+        "reconfigure_successful": "The device has been updated."
+      },
+      "error": {
+        "unknown_entity": "That entity does not exist.",
+        "not_numeric": "That sensor does not report a number."
       }
     },
     "battery": {
@@ -89,13 +134,31 @@
             "import_sensor": "Energy charged (kWh)",
             "export_sensor": "Energy discharged (kWh)"
           }
+        },
+        "reconfigure": {
+          "title": "Reconfigure battery",
+          "data": {
+            "device_name": "Name",
+            "import_sensor": "Energy charged (kWh)",
+            "export_sensor": "Energy discharged (kWh)"
+          }
         }
+      },
+      "abort": {
+        "reconfigure_successful": "The device has been updated."
+      },
+      "error": {
+        "unknown_entity": "That entity does not exist.",
+        "not_numeric": "That sensor does not report a number."
       }
     }
   },
   "selector": {
     "tariff_mode": {
-      "options": { "fixed": "Fixed", "dynamic": "Dynamic" }
+      "options": {
+        "fixed": "Fixed",
+        "dynamic": "Dynamic"
+      }
     }
   }
 }

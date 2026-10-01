@@ -54,12 +54,40 @@ class DeviceType(StrEnum):
 # end DeviceType
 
 
+# Per-device counters, by device type (plan: entities, device-level). Every
+# device counts energy per sensor; only general devices also count value.
+DEVICE_COUNTER_KEYS: Final = {
+    DeviceType.GENERAL: ("import_energy", "import_value"),
+    DeviceType.SOLAR: ("export_energy",),
+    DeviceType.BATTERY: ("import_energy", "export_energy"),
+}
+
 # Subentry types must be registered under these exact strings.
 SUBENTRY_TYPES: Final = (DeviceType.GENERAL, DeviceType.SOLAR, DeviceType.BATTERY)
 
 # Seconds after a window opens during which export-price and curtailment
 # updates still count for that window. See the plan's window-engine section.
 EXPORT_PRICE_GRACE_SECONDS: Final = 60
+
+# Persistence (see the plan). Bump STORAGE_VERSION whenever the stored layout
+# changes, so an old file can be recognised and migrated. Saves wait
+# SAVE_DELAY_SECONDS so a burst of changes becomes one write.
+STORAGE_VERSION: Final = 1
+SAVE_DELAY_SECONDS: Final = 10
+
+# The hub settings that shape windows. The store keeps a copy of them next to
+# the in-progress window; if they differ on load, that window is discarded
+# (plan: Persistence). Currency is not here: it can't change after setup.
+WINDOW_SETTINGS_KEYS: Final = (
+    CONF_TARIFF_MODE,
+    CONF_IMPORT_TARIFF,
+    CONF_EXPORT_TARIFF,
+    CONF_WINDOW_MINUTES,
+    CONF_IMPORT_PRICE_SENSOR,
+    CONF_EXPORT_PRICE_SENSOR,
+    CONF_TREAT_SOLAR_AS_FREE,
+    CONF_CURTAILMENT_SOURCE,
+)
 
 # ---------------------------------------------------------------------------
 # Names of the hub-level split outputs. Used to generate entities.
@@ -87,3 +115,14 @@ FINANCIAL_SPLIT_KEYS: Final = (
     "battery_to_house_savings",
     "battery_to_grid_profit",
 )
+
+
+def unique_id(owner_id: str, key: str) -> str:
+    """An entity's unique id: its owner's id plus its key (plan: entities).
+
+    owner_id is the hub's config entry id for split sensors, or the device's
+    subentry id for device counters. Both the sensor platform and the
+    simulator use this, so the format lives in one place.
+    """
+    return f"{owner_id}_{key}"
+# end unique_id

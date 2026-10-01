@@ -4,7 +4,10 @@ Build this THIRD, once calc.py and window.py work.
 
 Two families of entity live here:
   * hub-level split sensors (8 energy + 10 financial)
-  * per-device counters (energy + value, per direction)
+  * per-device counters (energy per sensor; value for general devices)
+
+Each hub is a Home Assistant device holding its split sensors, and each of
+its devices is a Home Assistant device of its own (plan: entities).
 """
 
 from __future__ import annotations
@@ -40,7 +43,9 @@ async def async_setup_entry(
         - one DynamicCostSplitSensor per key in FINANCIAL_SPLIT_KEYS
           (device_class MONETARY, unit = the hub's configured currency,
           state_class TOTAL)
-        - for each device subentry, its own counters. Remember to pass
+        - for each device subentry, one DynamicCostDeviceSensor per key in
+          DEVICE_COUNTER_KEYS[its type]: *_energy keys are ENERGY in kWh,
+          import_value is MONETARY in the hub currency. Remember to pass
           config_subentry_id=... to async_add_entities so each device's
           entities are attached to that subentry, not the hub.
 
@@ -62,10 +67,14 @@ class DynamicCostSplitSensor(SensorEntity):
 
         IMPLEMENT ME.
 
-        Set self._attr_unique_id to something stable and collision-proof --
-        the config entry id plus the key is the usual pattern. Stable unique
-        ids are what let Home Assistant remember the user's renames and
-        customisations across restarts.
+        Set self._attr_unique_id with const.unique_id(entry id, key). Stable
+        unique ids are what let Home Assistant remember the user's renames
+        and customisations across restarts, and the simulator finds
+        entities by them.
+
+        Set self._attr_device_info to a DeviceInfo with
+        identifiers={(DOMAIN, entry id)} and the hub's title as name, so the
+        split sensors sit under the hub's own device.
         """
         raise NotImplementedError
     # end __init__
@@ -77,8 +86,8 @@ class DynamicCostSplitSensor(SensorEntity):
 
         Use self.async_on_remove(self._engine.async_add_listener(...)) so the
         subscription is cleaned up automatically when the entity goes away.
-        Also restore the previous cumulative total here (see RestoreSensor)
-        so a restart does not zero everything.
+        Nothing to restore here: the engine holds and persists every total
+        (plan: Persistence), so the entity just displays it.
         """
         raise NotImplementedError
     # end async_added_to_hass
@@ -87,8 +96,48 @@ class DynamicCostSplitSensor(SensorEntity):
     def native_value(self) -> float | None:
         """Return the current cumulative total for this key.
 
-        IMPLEMENT ME.
+        IMPLEMENT ME. The engine's get_total() has it.
         """
         raise NotImplementedError
     # end native_value
 # end DynamicCostSplitSensor
+
+
+class DynamicCostDeviceSensor(SensorEntity):
+    """One counter of one device: its energy for one sensor, or its value."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+
+    def __init__(
+        self, engine, device, key: str, description: SensorEntityDescription
+    ) -> None:
+        """Store the engine, the device and the key this entity reports.
+
+        IMPLEMENT ME.
+
+        Unique id: const.unique_id(device.subentry_id, key). Device info:
+        identifiers={(DOMAIN, device.subentry_id)}, name=device.name, so
+        each device gets its own Home Assistant device. Renaming the device
+        changes only that name; the subentry id never changes.
+        """
+        raise NotImplementedError
+    # end __init__
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to the engine, as DynamicCostSplitSensor does.
+
+        IMPLEMENT ME.
+        """
+        raise NotImplementedError
+    # end async_added_to_hass
+
+    @property
+    def native_value(self) -> float | None:
+        """Return this counter's cumulative total, from the engine.
+
+        IMPLEMENT ME.
+        """
+        raise NotImplementedError
+    # end native_value
+# end DynamicCostDeviceSensor

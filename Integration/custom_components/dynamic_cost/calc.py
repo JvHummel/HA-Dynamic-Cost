@@ -180,6 +180,9 @@ def calculate_device_value(
 ) -> float:
     """Value one device's energy movement for one window.
 
+    Only general devices count value, at the import price (plan: entities,
+    device-level). Solar and battery devices count energy only.
+
     This is deliberately trivial (energy * price) and separate from the split
     maths above: per-device counters are plain sub-metering, they do not feed
     the hub-level splits at all. Kept as its own function so the rounding or

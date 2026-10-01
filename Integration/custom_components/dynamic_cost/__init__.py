@@ -1,8 +1,8 @@
 """The Dynamic Cost integration.
 
 This file is COMPLETE and working -- it is the wiring that makes Home
-Assistant load your integration. You should not need to change it much until
-you add persistence.
+Assistant load your integration. Persistence lives in the window engine, not
+here (plan: Persistence).
 """
 
 from __future__ import annotations
@@ -12,15 +12,17 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
 
 from .const import (
     CONF_DEVICE_NAME,
     CONF_EXPORT_SENSOR,
     CONF_IMPORT_SENSOR,
     DOMAIN,
+    STORAGE_VERSION,
     DeviceType,
 )
-from .window import Device, WindowEngine
+from .window import Device, WindowEngine, storage_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,7 +35,8 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: DynamicCostConfigEntry
 ) -> bool:
     """Set up one Dynamic Cost hub from a config entry."""
-    config = {**entry.data, **entry.options}
+    # Hub settings live in entry.data; the reconfigure flow edits them there.
+    config = dict(entry.data)
 
     # Devices are subentries, which are NOT part of entry.data -- each one is
     # stored separately in entry.subentries, keyed by subentry id.
@@ -48,7 +51,7 @@ async def async_setup_entry(
         for subentry in entry.subentries.values()
     ]
 
-    engine = WindowEngine(hass, config, devices)
+    engine = WindowEngine(hass, entry.entry_id, config, devices)
     await engine.async_start()
 
     # runtime_data is the modern place to hang per-entry objects; it is typed
@@ -68,6 +71,7 @@ async def async_unload_entry(
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         entry.runtime_data.async_stop()
+        await entry.runtime_data.async_save_now()
     # end if
     return unload_ok
 # end async_unload_entry
@@ -76,6 +80,14 @@ async def async_unload_entry(
 async def async_reload_entry(
     hass: HomeAssistant, entry: DynamicCostConfigEntry
 ) -> None:
-    """Reload when the user edits options or adds/removes a device."""
+    """Reload after any edit: hub reconfigured, device added, changed or removed."""
     await hass.config_entries.async_reload(entry.entry_id)
 # end async_reload_entry
+
+
+async def async_remove_entry(
+    hass: HomeAssistant, entry: DynamicCostConfigEntry
+) -> None:
+    """Delete the hub's store when the hub itself is deleted (plan: Persistence)."""
+    await Store(hass, STORAGE_VERSION, storage_key(entry.entry_id)).async_remove()
+# end async_remove_entry

@@ -10,13 +10,13 @@ Five components make up the integration:
 2. **Window engine** — decides when a tracking window opens and closes (fixed timer or dynamic import-price change), and feeds the calculation engine the deltas for that window.
 3. **Config flow** — the hub setup wizard, plus per-device subentries (general / solar / battery) addable later without re-running the wizard.
 4. **Entities** — the sensors Home Assistant shows, built from the engine's output at each window close.
-5. **Persistence** — cumulative totals, in-progress window state, and the locked export price all survive a restart.
+5. **Persistence** — cumulative totals, in-progress window state, and the locked export price all survive a restart, in one store per hub owned by the window engine.
 
 Suggested build order is in the last section.
 
 ## Calculation engine
 
-Plain arithmetic, decoupled from Home Assistant entirely — testable with hand-worked numbers before any integration code exists. Totals live in this engine's own state (not `utility_meter`), so outputs are free to go negative, exactly as the spec calls for.
+Plain arithmetic, decoupled from Home Assistant entirely — testable with hand-worked numbers before any integration code exists. Running totals live in the window engine's own state (not `utility_meter`), so outputs are free to go negative, exactly as the spec calls for.
 
 ```
 // Inputs for this window: aggregated across all devices of each type
@@ -76,14 +76,22 @@ Home Assistant forms can't show or hide a field based on another field in the sa
 | 2a (Fixed) | Import tariff, export tariff, tracking window (minutes) | Tariffs in currency/kWh; window duration drives the fixed timer |
 | 2b (Dynamic) | Import price sensor, export price sensor | Window boundaries follow the import price sensor |
 | 3 | Treat solar to battery energy as free | Checkbox, off by default |
-| 4 | Currency | Sets `native_unit_of_measurement` for every monetary sensor under this hub |
+| 4 | Currency | Sets `native_unit_of_measurement` for every monetary sensor under this hub. Defaults to Home Assistant's own currency setting. Fixed after setup |
 | 5 (checkbox off) | Curtailment source | Optional entity picker limited to `input_boolean`, `switch` and `binary_sensor`. Empty means never curtailed; hubs may share one entity. Offered in both tariff modes; skipped entirely with the checkbox on |
 
 | Device type | Sensors required | Tracks |
 | --- | --- | --- |
 | General | Import sensor only | Import energy + import value; pure sub-metering, does **not** feed the hub-level splits |
-| Solar | Export sensor only | Export energy + export value; combined with every other solar device for the hub's `Solar` figure |
-| Battery | Import sensor + export sensor | Import/export energy + value; combined with every other battery device for the hub's `BatteryCharge` / `BatteryDischarge` figures |
+| Solar | Export sensor only | Production energy only; combined with every other solar device for the hub's `Solar` figure |
+| Battery | Import sensor + export sensor | Charge and discharge energy only; combined with every other battery device for the hub's `BatteryCharge` / `BatteryDischarge` figures |
+
+Both the hub and its devices stay editable after setup:
+
+- **Hub settings** are changed through a reconfigure flow that walks the same steps as setup, pre-filled with the current values. Everything can change except the currency: changing it would mix two currencies in the existing totals, and Home Assistant's long-term statistics treat a unit change as a break. A different currency means a new hub.
+- **Switching tariff type is explicitly allowed.** A user who moves from a fixed to a dynamic contract (or back) can update the hub and keep all their records; the totals carry on, and windows follow the new contract from the reload on.
+- **Each device** has its own reconfigure step with the same fields as adding it: its name and its sensor(s). Its type can't change; for that, remove the device and add it again.
+
+Every edit reloads the hub. How the engine picks up after a change is covered under Persistence.
 
 ## Window engine
 
@@ -106,6 +114,13 @@ on_boundary_triggered():
 
 Triggers: a repeating timer from hub load for fixed tariffs; a state-change listener on the import price sensor for dynamic tariffs (an unavailable reading, or one equal to the current window's price, is a no-op — the window just stays open).
 
+The first window opens as soon as the engine has everything a window needs to open, which is only an import price:
+
+- **Fixed tariffs:** the import price is the configured tariff, so the first window opens at hub load.
+- **Dynamic tariffs:** the engine reads the import price sensor at hub load. If it has a real reading, the first window opens with it. If not, no window opens at all: the engine waits in a "no window yet" state, and the first real import price that arrives opens the first window rather than closing one. Opening with an unknown price would make that first real price look like a change, and settle a window with no price to value it at.
+
+Export price and curtailment aren't needed to open a window; they lock later, as described below. When the first window opens, every energy sensor is read once to set its baseline snapshot. Energy that flowed before then isn't tracked, just like energy from before the integration was installed. A sensor with no snapshot yet, because it was unavailable at that moment, gets its baseline from its first successful reading, which contributes 0.
+
 Export price locks on a grace period rather than a hard deadline:
 
 ```
@@ -126,6 +141,8 @@ on_grace_period_elapsed():
     lock_export_price(tentative_export_price)
 ```
 
+With fixed tariffs, the configured export tariff stands in for the export price sensor: it is the tentative export price at every window open and locks when the grace period elapses, like any other. Fixed mode needs no special case in the locking logic.
+
 If the window is ready to close (import price changed) but export price for it never locked, the window is **not** closed — energy keeps accumulating into the extended window until export price locks, at which point it settles and closes normally.
 
 The curtailment signal uses the same mechanism as export price: read tentatively at window open, updated by changes during the 60-second grace period, locked when the grace period elapses. If the source is unavailable, it locks on the first real reading, and the window cannot close until it has. With no source configured, every window counts as uncurtailed and nothing waits. The config flow only saves a source when the checkbox is off, so the engine just checks whether one is configured. Any on/off entity the user's automations can drive works as a source; the integration doesn't own the switch.
@@ -139,21 +156,52 @@ One rule covers every failure mode here: never guess a value — wait for real d
 | Signal | Unavailable behavior |
 | --- | --- |
 | Any energy sensor (grid or per-device) | Contributes 0 to this window's delta; its snapshot is **not** advanced, so the next successful read is compared against the last known good value, however many windows it took to recover |
+| Energy sensor with no snapshot yet | Its first successful reading only sets the baseline and contributes 0. That happens when it was unavailable as the first window opened, or when a device has just been added |
 | Energy sensor reads lower than its snapshot | Treated as a counter reset (e.g. a daily-reset production meter): delta counts as 0 and the snapshot advances to the new reading. A reset is a discontinuity, not timing skew, so unlike jitter it never self-corrects |
 | Import price sensor | Treated as "no change" — the current window simply stays open |
+| Import price sensor, first start with no window yet | No window opens until a real reading arrives; nothing is tracked until then |
 | Export price sensor, within the grace period | The grace period becomes the earliest possible lock time, not a deadline — it locks the moment a real reading arrives, even minutes later |
 | Export price sensor, window ready to close but nothing ever locked | Window is not closed — held open, energy still accumulating, until export price locks |
 | Curtailment source | Same as export price: locks on the first real reading and holds the window open until it does. With no source configured, nothing is read and every window counts as uncurtailed |
 
 This is expected to only happen from an upstream API error or a misconfiguration, not as routine behavior — which is also why it's safe to just wait rather than build more elaborate fallback logic.
 
-Restarts follow the same rule. Sensor snapshots are persisted along with the rest of the in-progress window state, so energy that flowed while Home Assistant was down lands in the first window after the restart, just as it does after an unavailable sensor recovers. Not persisting them would drop that energy from the splits.
+Restarts follow the same rule. Sensor snapshots are persisted along with the rest of the in-progress window state, so energy that flowed while Home Assistant was down lands in the first window after the restart, just as it does after an unavailable sensor recovers. Not persisting them would drop that energy from the splits. Because a restart restores the window that was open, an unavailable import price at that point is ordinary "no change"; the "no window yet" state only arises on the very first start.
+
+## Persistence
+
+Each hub has one store: Home Assistant's `Store` helper, a JSON file under `.storage/` named after the hub's config entry id. The window engine owns it and is the single source of truth. It holds:
+
+- every cumulative total, hub-level splits and per-device counters alike
+- every energy sensor's snapshot
+- the in-progress window: its prices, lock state and grace state
+
+The engine saves after every change worth surviving a restart (a window opening, a lock, a window closing), with a short delay so bursts of changes become one write. Home Assistant flushes pending writes at shutdown, and the engine writes immediately when it unloads, so a reload never races its own delayed save. Deleting the hub deletes its store.
+
+Everything in the store is keyed by IDs that never change. Home Assistant gives every hub a config entry id and every device a subentry id; renaming either changes only its title. Device totals are keyed by subentry id, and snapshots by the entity id of the sensor they belong to. Alongside the in-progress window, the store keeps a copy of the hub settings that shape windows: tariff type, tariffs, price sensors, window length, the "treat solar as free" checkbox and the curtailment source.
+
+The configuration can change while the hub is stopped, through an edit, or while it was disabled. On load, the engine reconciles the store with the current configuration:
+
+| Change | Handling |
+| --- | --- |
+| Device renamed | Nothing to do: its subentry id is unchanged |
+| Device added | No stored data: its counters start at 0 and its first reading sets the baseline |
+| Device removed | Its stored totals and snapshots are dropped |
+| Device or grid sensor switched to another sensor | The new sensor has no snapshot, so its first reading sets a fresh baseline and contributes 0. The device keeps its totals |
+| Window-shaping hub settings changed (including tariff type) | The stored window is discarded and the first-window rules apply. Snapshots of unchanged sensors are kept, so no energy is lost: it lands in the new first window, just as downtime energy does after a restart. All totals are kept |
 
 ## Entities and aggregation
 
 **Hub-level**: the 8 energy-split sensors and 10 financial-split sensors, built each window from `Solar` = sum of every solar device's export delta, `BatteryCharge` / `BatteryDischarge` = summed across all battery devices, `GridImport` / `GridExport` read straight from the hub's own two sensors.
 
-**Device-level**: each device gets its own simple (not split-aware) counters — energy and value, using whichever price applies to its direction. This is separate bookkeeping, not an input to the hub-level split math.
+**Device-level**: each device gets its own simple (not split-aware) counters. This is separate bookkeeping, not an input to the hub-level split math.
+
+- Every device counts energy per sensor: a general device its import, a solar device its production, a battery its charge and its discharge. This deliberately duplicates the source meter: it counts from the start of measurement rather than from whenever the source meter started, which may be long before the integration was added.
+- Only general devices also count value, at the import price. Together with the energy counter, that gives the device's average energy cost, which is useful with dynamic tariffs. Solar and battery devices count no value: they exist to feed the splits, where their value is accounted for.
+
+Each hub is a Home Assistant device holding the split sensors, and each of its devices is a Home Assistant device of its own, named after it and holding its own counters. Every entity's unique id is its owner's id plus its key: `<config entry id>_<key>` for split sensors, `<subentry id>_<key>` for device counters. Entity ids are generated by Home Assistant from the device and entity names, so they differ between installations; code and tests find entities by unique id instead.
+
+Entities restore nothing themselves: they display the totals the window engine holds (see Persistence).
 
 Every monetary sensor gets `device_class: monetary`, `state_class: total`, and the hub's chosen currency as its unit, so long-term statistics and the Energy dashboard work the same way they were set up to in the original YAML package.
 
@@ -176,7 +224,12 @@ on_sensor_recovers(entity_id):
 Config-flow validation is two cheap layers:
 
 1. Sensor pickers are restricted to `device_class: energy` entities where applicable, so most wrong-sensor mistakes are impossible to make rather than caught after the fact.
-2. A one-time live read at setup: an entity ID that doesn't exist at all is a hard error (blocks finishing setup, since that's unambiguously a typo). An entity that exists but reads unavailable at that moment is only a soft warning shown in the form — setup can still complete, since a briefly-unavailable sensor isn't necessarily misconfigured.
+2. A one-time live read of every chosen energy and price sensor at setup:
+   - An entity ID that doesn't exist at all is a hard error (`unknown_entity`), since that's unambiguously a typo.
+   - An entity whose state isn't a number is a hard error (`not_numeric`): it's the wrong kind of entity.
+   - An entity that exists but reads unavailable or unknown at that moment only gets a soft warning, since a briefly-unavailable sensor isn't necessarily misconfigured. Home Assistant form errors always block submission, so the warning is a separate confirmation step that names the sensor and lets the user continue anyway.
+
+   Hard errors block finishing setup until the field is corrected.
 
 ## Suggested build order
 
@@ -192,8 +245,8 @@ Development runs in VS Code against a project virtualenv and in-process tests; n
 
 - Editor: Code OSS with the Python and Ruff extensions. Set `"python.analysis.typeCheckingMode": "standard"` so Pylance flags type mismatches while typing — annotations are not enforced at runtime.
 - Terminal: VS Code's terminal profile is bash. In fish, activate with `source .venv/bin/activate.fish` instead.
-- Environment: `.venv` in the project root, `pip install -r requirements-dev.txt` inside it.
-- Tests, two tiers: `test_calc.py` needs no Home Assistant and runs in milliseconds. `test_window.py` boots an in-process `hass` via `pytest-homeassistant-custom-component`, drives it with `tests/simulator.py`, and uses `async_fire_time_changed` to skip ahead through timers.
+- Environment: `.venv` in the project root, built with `uv` on Python 3.14 (`uv venv --python 3.14 .venv`, then `uv pip install --python .venv -r requirements-dev.txt`). Current Home Assistant requires Python 3.14.2+, and config subentries need Home Assistant 2025.3 or later. With an older Python, pip silently installs an old Home Assistant that lacks them, and the config flow fails to import.
+- Tests, two tiers: `test_calc.py` needs no Home Assistant and runs in milliseconds. `test_window.py` boots an in-process `hass` via `pytest-homeassistant-custom-component` and uses `async_fire_time_changed` to skip ahead through timers. Its behaviour tests drive the integration through `tests/simulator.py`; its lifecycle tests build a `WindowEngine` directly to check listener wiring on its own.
 - Frozen dataclasses (`WindowEnergy`, `EnergySplits`, `FinancialSplits`) are immutable: compute into locals, then construct once with keyword arguments.
 
 | Kind | Convention |
@@ -208,7 +261,7 @@ Development runs in VS Code against a project virtualenv and in-process tests; n
 
 The skeleton's `IMPLEMENT ME` bodies are the author's practice exercises: guide, explain, and review them, but don't write them unless asked.
 
-- Complete as shipped: `const.py`, `__init__.py`, `tests/simulator.py`. Everything else holds exercises.
+- Complete as shipped: `const.py`, `__init__.py`, `tests/simulator.py`, and the lifecycle tests at the bottom of `test_window.py`. Everything else holds exercises.
 - When the design changes, updating the skeleton's scaffolding to match is fair game for Claude: constants, signatures, stubs and their docstrings, tests, config-flow fields, `strings.json`, and the simulator. The function bodies stay exercises.
 - The author is new to Python, Home Assistant, and Linux, coming from C, assembly, and Delphi Pascal — explain idioms by contrast with those where it helps.
 - This doc describes the current design, as if it had always been that way. A new idea may start as a numbered addendum while it's evaluated together; once agreed, it's woven into the relevant sections and the addendum is removed before anything is implemented.

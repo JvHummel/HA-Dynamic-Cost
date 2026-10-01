@@ -15,13 +15,18 @@ marked `IMPLEMENT ME` are yours to fill in.
     tests/
       simulator.py    complete -- your test bench. Not an exercise.
       test_calc.py    some written, some for you.
-      test_window.py  all yours.
+      test_window.py  exercises, plus complete lifecycle tests at the bottom.
 
 ## Getting started
 
-    python3 -m venv .venv
-    source .venv/bin/activate          # Windows: .venv\Scripts\activate
-    pip install -r requirements-dev.txt
+Current Home Assistant needs a newer Python than most distributions ship
+(3.14.2+ as of 2026.9), so the venv is built with uv, which fetches that
+Python for you:
+
+    curl -LsSf https://astral.sh/uv/install.sh | sh     # once; installs uv
+    uv venv --python 3.14 .venv
+    uv pip install --python .venv -r requirements-dev.txt
+    source .venv/bin/activate          # fish: source .venv/bin/activate.fish
 
     pytest tests/test_calc.py -v       # start here
 

@@ -3,8 +3,9 @@
 These DO boot a Home Assistant instance -- but in-process, in about a second,
 with no restart and no real config directory.
 
-Every one of these is an exercise. The docstrings say what behaviour to pin
-down; the plan says what the behaviour should be.
+The simulator-driven tests at the top are exercises: the docstrings say what
+behaviour to pin down, the plan says what the behaviour should be. The
+lifecycle tests at the bottom are complete.
 """
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ async def test_single_window_settles(hass, simulator):
         simulator.advance_meter("sensor.sim_solar", 2.0)
         simulator.set_price(import_price=0.30, export_price=0.05)
         ... trigger a boundary ...
-        assert simulator.get_state("sensor.dynamic_cost_solar_to_house") == ...
+        assert simulator.get_total("solar_to_house") == pytest.approx(...)
     """
     pytest.skip("exercise: write this test")
 # end test_single_window_settles
@@ -83,12 +84,80 @@ async def test_late_export_price_still_locks(hass, simulator):
     """An export price arriving after the grace period still locks the window.
 
     WRITE ME. Use async_fire_time_changed to push past the 60s grace period
-    with the export price unavailable, assert nothing settled, then bring the
-    price back and assert the window settles at that moment.
+    with the export price unavailable, then change the import price so the
+    window is ready to close. Assert nothing settled (the window is held
+    open), then bring the export price back and assert the window settles at
+    that moment.
     """
     pytest.skip("exercise: write this test")
 # end test_late_export_price_still_locks
 
+
+async def test_energy_counter_reset_counts_as_zero(hass, simulator):
+    """A meter reading lower than its snapshot is a reset, not negative energy.
+
+    WRITE ME. Let a solar meter drop (e.g. 10.0 -> 0.5, a daily reset), run a
+    window and assert solar contributed 0. Then advance it by 2.0 and assert
+    the next window sees exactly 2.0: the snapshot moved to the reset value.
+    """
+    pytest.skip("exercise: write this test")
+# end test_energy_counter_reset_counts_as_zero
+
+
+async def test_general_device_does_not_feed_splits(hass, simulator):
+    """General devices are sub-metering only.
+
+    WRITE ME. Set up a hub with a general device, advance only its meter,
+    and assert the hub-level splits are unchanged while the device's own
+    counters moved.
+    """
+    pytest.skip("exercise: write this test")
+# end test_general_device_does_not_feed_splits
+
+
+async def test_curtailed_window_counts_solar_to_battery_as_free(hass, simulator):
+    """Curtailment locked on for a window zeroes its solar-to-battery cost.
+
+    WRITE ME. async_setup_hub(curtailment=True, ...), set_curtailed(True)
+    before the grace period ends, put solar into the battery, settle the
+    window and assert solar_to_battery_cost did not move. A second window
+    with curtailment off should count it at the export price.
+    """
+    pytest.skip("exercise: write this test")
+# end test_curtailed_window_counts_solar_to_battery_as_free
+
+
+async def test_unavailable_curtailment_holds_window_open(hass, simulator):
+    """No curtailment reading means no lock, and no lock means no close.
+
+    WRITE ME. Same shape as test_late_export_price_still_locks, but with the
+    curtailment source unavailable instead of the export price.
+    """
+    pytest.skip("exercise: write this test")
+# end test_unavailable_curtailment_holds_window_open
+
+
+async def test_first_start_without_import_price_opens_no_window(hass, simulator):
+    """First start with no import price: no window until a real price arrives.
+
+    WRITE ME. async_setup_hub(import_price_available=False, ...), move some
+    energy and assert nothing is tracked. Then publish a real import price
+    and assert a window opened (not settled) -- the energy from before that
+    moment is never counted.
+    """
+    pytest.skip("exercise: write this test")
+# end test_first_start_without_import_price_opens_no_window
+
+
+async def test_unavailable_logging_is_edge_triggered(hass, simulator, caplog):
+    """One warning when a sensor goes down, one info line when it recovers.
+
+    WRITE ME. Knock a sensor out, run several windows, and assert the
+    warning appears exactly once in caplog.records. Restore it and assert a
+    single recovery line.
+    """
+    pytest.skip("exercise: write this test")
+# end test_unavailable_logging_is_edge_triggered
 
 # ---------------------------------------------------------------------------
 # Engine lifecycle: async_start / async_stop
@@ -144,7 +213,7 @@ def _make_engine(
         config[CONF_CURTAILMENT_SOURCE] = CURTAILMENT
     # end if
 
-    engine = WindowEngine(hass, config, devices=[])
+    engine = WindowEngine(hass, "test_entry", config, devices=[])
     calls: Counter = Counter()
     for name in HANDLERS:
         # An instance attribute shadows the method of the same name, so the
