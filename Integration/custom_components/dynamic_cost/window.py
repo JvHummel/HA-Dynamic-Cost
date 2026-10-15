@@ -124,14 +124,18 @@ class WindowEngine:
         config entry id, which names its store.
         """
         self._hass = hass
+        self._entry_id = entry_id
         self._config = config
         self._devices = devices
         self._sensors: dict[str, TrackedSensor] = {}
         self._window = WindowState()
         self._unsubscribes: list[Callable[[], None]] = []
-        # Cumulative totals: the hub-level split keys plus every device's
-        # counters, keyed however you like. The sensor platform reads them
-        # through get_total(). See the plan's Persistence section.
+        # Cumulative totals, keyed by the unique id of the entity that shows
+        # each one: const.unique_id(self._entry_id, split key) for the hub's
+        # splits, const.unique_id(subentry id, counter key) for a device's
+        # counters (DEVICE_COUNTER_KEYS). The sensor platform reads them with
+        # get_total(its own unique id), and the tests read them the same way,
+        # so window.py can be tested before sensor.py exists.
         self._totals: dict[str, float] = {}
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, storage_key(entry_id)
@@ -274,8 +278,9 @@ class WindowEngine:
 
         The configuration may have changed while the hub was stopped.
         Reconcile per the table in the plan's Persistence section:
-          - totals of devices whose subentry id no longer exists: drop them.
-            New devices simply have no totals yet.
+          - totals of devices whose subentry id no longer exists: drop them
+            (a total's key starts with its owner's id). New devices simply
+            have no totals yet.
           - snapshots: keep only those whose entity id is still a tracked
             sensor. A swapped or new sensor then has no snapshot, so its
             first reading sets a fresh baseline.
@@ -573,7 +578,7 @@ class WindowEngine:
 
     @callback
     def get_total(self, key: str) -> float:
-        """Current cumulative total for one key, for the sensor platform."""
+        """Current cumulative total for one unique id (see self._totals)."""
         return self._totals.get(key, 0.0)
     # end get_total
 

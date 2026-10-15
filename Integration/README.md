@@ -14,8 +14,12 @@ marked `IMPLEMENT ME` are yours to fill in.
       __init__.py     complete -- entry setup/unload wiring.
     tests/
       simulator.py    complete -- your test bench. Not an exercise.
-      test_calc.py    some written, some for you.
-      test_window.py  exercises, plus complete lifecycle tests at the bottom.
+      test_calc.py         calculation engine; no Home Assistant needed
+      test_window.py       windows, prices, resilience, logging, lifecycle
+      test_sensor.py       entities, units, devices
+      test_config_flow.py  setup wizard, validation, reconfigure
+      test_persistence.py  restarts and configuration changes
+    All tests are complete; they turn green as the integration does.
 
 ## Getting started
 
@@ -34,5 +38,8 @@ Python for you:
 
 1. `calc.py` until `pytest tests/test_calc.py` is green. No Home Assistant
    involved at all -- this is plain arithmetic you can check by hand.
-2. `window.py`, using `tests/test_window.py` and the simulator to drive it.
-3. `sensor.py` and `config_flow.py` last, once the logic underneath is proven.
+2. `window.py`, against `tests/test_window.py` and `test_persistence.py`.
+   They read results straight from the engine, so they don't need the
+   entities yet.
+3. `sensor.py` (`tests/test_sensor.py`) and `config_flow.py`
+   (`tests/test_config_flow.py`) last, once the logic underneath is proven.

@@ -88,6 +88,10 @@
             "device_name": "Name",
             "import_sensor": "Energy used (kWh)"
           }
+        },
+        "confirm_unavailable": {
+          "title": "Sensor unavailable",
+          "description": "{sensors} currently reads unavailable. That can be temporary, so you can continue anyway, but check the sensor if it stays that way."
         }
       },
       "abort": {
@@ -114,6 +118,10 @@
             "device_name": "Name",
             "export_sensor": "Energy produced (kWh)"
           }
+        },
+        "confirm_unavailable": {
+          "title": "Sensor unavailable",
+          "description": "{sensors} currently reads unavailable. That can be temporary, so you can continue anyway, but check the sensor if it stays that way."
         }
       },
       "abort": {
@@ -142,6 +150,10 @@
             "import_sensor": "Energy charged (kWh)",
             "export_sensor": "Energy discharged (kWh)"
           }
+        },
+        "confirm_unavailable": {
+          "title": "Sensor unavailable",
+          "description": "{sensors} currently reads unavailable. That can be temporary, so you can continue anyway, but check the sensor if it stays that way."
         }
       },
       "abort": {

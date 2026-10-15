@@ -3,8 +3,8 @@
 These need NO Home Assistant at all and run in milliseconds. Start here:
 make these pass before you write a single line of window.py.
 
-Several tests are deliberately left for you to fill in -- the exercise is
-deciding what the right answer IS, which is the part worth thinking about.
+The tests under YOUR TURN were the author's own exercises; the rest pin the
+plan's formulas, including its MAX(0, ...) clamp case.
 """
 
 from __future__ import annotations
@@ -70,6 +70,24 @@ def test_solar_to_battery_cost(treat_solar_as_free, export_price, expected):
     result = calculate_solar_to_battery_cost(5.0, export_price, treat_solar_as_free)
     assert result == pytest.approx(expected)
 # end test_solar_to_battery_cost
+
+
+def test_night_export_comes_from_battery_not_solar():
+    """The plan's clamp case: battery discharges 5, house uses 2, 3 exported.
+
+    Without the MAX(0, ...) clamps this reports 3 kWh solar to grid and none
+    from the battery, at night.
+    """
+    splits = calculate_energy_splits(
+        WindowEnergy(battery_discharge=5.0, grid_export=3.0)
+    )
+
+    assert splits.house_energy_usage == pytest.approx(2.0)
+    assert splits.solar_to_grid == pytest.approx(0.0)
+    assert splits.solar_to_house == pytest.approx(0.0)
+    assert splits.battery_to_house == pytest.approx(2.0)
+    assert splits.battery_to_grid == pytest.approx(3.0)
+# end test_night_export_comes_from_battery_not_solar
 
 
 # ---------------------------------------------------------------------------

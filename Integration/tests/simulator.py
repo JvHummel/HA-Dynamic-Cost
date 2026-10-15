@@ -22,16 +22,20 @@ Typical use, from a test:
     print(sim.get_total("solar_to_house"))            # a hub split
     print(sim.get_total("export_energy", device="Solar 1"))
 
-Entity ids depend on device names, so the simulator finds your entities by
-unique id (const.unique_id) instead. Devices are named "Solar 1",
+get_total() reads the window engine's totals directly, by the unique id of
+the entity that shows each one, so window.py can be tested before sensor.py
+exists. entity_id_for() finds the entities themselves, also by unique id,
+since entity ids depend on device names. Devices are named "Solar 1",
 "Battery 1", "General 1" and so on, in the order you pass them.
 """
 
 from __future__ import annotations
 
 from datetime import timedelta
+from types import MappingProxyType
 from typing import Any
 
+from homeassistant.config_entries import ConfigSubentry
 from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
@@ -98,6 +102,7 @@ class Simulator:
         import_tariff: float = 0.0,
         export_tariff: float = 0.0,
         window_minutes: int = 15,
+        currency: str = "EUR",
     ) -> MockConfigEntry:
         """Create a hub config entry plus device subentries, and load it.
 
@@ -170,7 +175,7 @@ class Simulator:
             CONF_EXPORT_TARIFF: export_tariff,
             CONF_WINDOW_MINUTES: window_minutes,
             CONF_TREAT_SOLAR_AS_FREE: treat_solar_as_free,
-            CONF_CURRENCY: "EUR",
+            CONF_CURRENCY: currency,
         }
         # An empty optional field is absent from the saved data, not None.
         if curtailment:
@@ -289,6 +294,11 @@ class Simulator:
         await self._async_jump(timedelta(seconds=EXPORT_PRICE_GRACE_SECONDS + 1))
     # end async_advance_window
 
+    async def async_wait(self, seconds: float) -> None:
+        """Let time pass, firing every timer due within that many seconds."""
+        await self._async_jump(timedelta(seconds=seconds))
+    # end async_wait
+
     async def _async_jump(self, delta: timedelta) -> None:
         """Fire every timer that would have run within delta from now."""
         async_fire_time_changed(self._hass, dt_util.utcnow() + delta)
@@ -305,6 +315,101 @@ class Simulator:
         self.set_meter(entity_id, self._meters.get(entity_id, 0.0))
     # end restore
 
+    # -- stopping, restarting and changing the configuration ---------------
+
+    async def async_stop_hub(self) -> None:
+        """Unload the hub, as Home Assistant does at shutdown or on disable."""
+        assert self.entry is not None, "call async_setup_hub first"
+        await self._hass.config_entries.async_unload(self.entry.entry_id)
+        await self._hass.async_block_till_done()
+    # end async_stop_hub
+
+    async def async_start_hub(self) -> None:
+        """Load a stopped hub again, as Home Assistant does at startup."""
+        assert self.entry is not None, "call async_setup_hub first"
+        await self._hass.config_entries.async_setup(self.entry.entry_id)
+        await self._hass.async_block_till_done()
+    # end async_start_hub
+
+    async def async_restart(self) -> None:
+        """Stop and start the hub: a Home Assistant restart, as far as it knows."""
+        await self.async_stop_hub()
+        await self.async_start_hub()
+    # end async_restart
+
+    async def async_add_device(
+        self, device_type: DeviceType, name: str, sensors: dict[str, str]
+    ) -> None:
+        """Add a device, as the "Add device" flow would.
+
+        A running hub reloads, exactly as in Home Assistant; a stopped hub
+        picks the device up when it starts.
+        """
+        assert self.entry is not None, "call async_setup_hub first"
+        self._hass.config_entries.async_add_subentry(
+            self.entry,
+            ConfigSubentry(
+                data=MappingProxyType({CONF_DEVICE_NAME: name, **sensors}),
+                subentry_type=device_type,
+                title=name,
+                unique_id=None,
+            ),
+        )
+        await self._hass.async_block_till_done()
+    # end async_add_device
+
+    async def async_remove_device(self, name: str) -> None:
+        """Remove a device by name."""
+        assert self.entry is not None, "call async_setup_hub first"
+        subentry = self._subentry_named(name)
+        assert subentry is not None, f"no device named {name!r}"
+        self._hass.config_entries.async_remove_subentry(
+            self.entry, subentry.subentry_id
+        )
+        await self._hass.async_block_till_done()
+    # end async_remove_device
+
+    async def async_update_device(
+        self,
+        name: str,
+        *,
+        new_name: str | None = None,
+        sensors: dict[str, str] | None = None,
+    ) -> None:
+        """Rename a device and/or point it at other sensors, as reconfigure would."""
+        assert self.entry is not None, "call async_setup_hub first"
+        subentry = self._subentry_named(name)
+        assert subentry is not None, f"no device named {name!r}"
+        data = dict(subentry.data) | (sensors or {})
+        title = subentry.title
+        if new_name is not None:
+            title = new_name
+            data[CONF_DEVICE_NAME] = new_name
+        # end if
+        self._hass.config_entries.async_update_subentry(
+            self.entry, subentry, data=data, title=title
+        )
+        await self._hass.async_block_till_done()
+    # end async_update_device
+
+    async def async_update_hub(self, changes: dict[str, Any]) -> None:
+        """Change hub settings (CONF_* keys), as the reconfigure flow would."""
+        assert self.entry is not None, "call async_setup_hub first"
+        data = dict(self.entry.data) | changes
+        self._hass.config_entries.async_update_entry(self.entry, data=data)
+        self._tariff_mode = TariffMode(data[CONF_TARIFF_MODE])
+        self._window_minutes = data[CONF_WINDOW_MINUTES]
+        await self._hass.async_block_till_done()
+    # end async_update_hub
+
+    def _subentry_named(self, name: str) -> ConfigSubentry | None:
+        assert self.entry is not None, "call async_setup_hub first"
+        return next(
+            (sub for sub in self.entry.subentries.values() if sub.title == name),
+            None,
+        )
+    # end _subentry_named
+
     # -- observing ---------------------------------------------------------
 
     def get_state(self, entity_id: str) -> str | None:
@@ -318,16 +423,16 @@ class Simulator:
 
         Without device, key is a hub split key ("solar_to_house"). With
         device, it is that device's counter key ("export_energy"), and device
-        is the device's name ("Solar 1").
+        is the device's name ("Solar 1"). None if there is no such entity.
         """
         assert self.entry is not None, "call async_setup_hub first"
         owner = self.entry.entry_id
         if device is not None:
-            owner = next(
-                sub.subentry_id
-                for sub in self.entry.subentries.values()
-                if sub.title == device
-            )
+            subentry = self._subentry_named(device)
+            if subentry is None:
+                return None
+            # end if
+            owner = subentry.subentry_id
         # end if
         return er.async_get(self._hass).async_get_entity_id(
             "sensor", DOMAIN, unique_id(owner, key)
@@ -335,14 +440,25 @@ class Simulator:
     # end entity_id_for
 
     def get_total(self, key: str, device: str | None = None) -> float | None:
-        """Read one of your entities as a number; None if missing or not numeric."""
-        entity_id = self.entity_id_for(key, device)
-        raw = self.get_state(entity_id) if entity_id else None
-        try:
-            return float(raw)
-        except (TypeError, ValueError):
+        """Read one total from the running window engine.
+
+        Without device, key is a hub split key; with device, a counter key of
+        that device. None if the hub isn't running or there's no such device.
+        """
+        assert self.entry is not None, "call async_setup_hub first"
+        owner = self.entry.entry_id
+        if device is not None:
+            subentry = self._subentry_named(device)
+            if subentry is None:
+                return None
+            # end if
+            owner = subentry.subentry_id
+        # end if
+        engine = getattr(self.entry, "runtime_data", None)
+        if engine is None:
             return None
-        # end try
+        # end if
+        return engine.get_total(unique_id(owner, key))
     # end get_total
 
     def dump(self) -> dict[str, Any]:

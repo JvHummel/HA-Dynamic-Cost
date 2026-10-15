@@ -96,7 +96,8 @@ class DynamicCostSplitSensor(SensorEntity):
     def native_value(self) -> float | None:
         """Return the current cumulative total for this key.
 
-        IMPLEMENT ME. The engine's get_total() has it.
+        IMPLEMENT ME. The engine keeps it under this entity's unique id:
+        self._engine.get_total(self.unique_id).
         """
         raise NotImplementedError
     # end native_value
@@ -136,7 +137,7 @@ class DynamicCostDeviceSensor(SensorEntity):
     def native_value(self) -> float | None:
         """Return this counter's cumulative total, from the engine.
 
-        IMPLEMENT ME.
+        IMPLEMENT ME. As for the split sensors: get_total(self.unique_id).
         """
         raise NotImplementedError
     # end native_value

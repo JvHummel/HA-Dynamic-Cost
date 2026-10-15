@@ -178,7 +178,7 @@ Each hub has one store: Home Assistant's `Store` helper, a JSON file under `.sto
 
 The engine saves after every change worth surviving a restart (a window opening, a lock, a window closing), with a short delay so bursts of changes become one write. Home Assistant flushes pending writes at shutdown, and the engine writes immediately when it unloads, so a reload never races its own delayed save. Deleting the hub deletes its store.
 
-Everything in the store is keyed by IDs that never change. Home Assistant gives every hub a config entry id and every device a subentry id; renaming either changes only its title. Device totals are keyed by subentry id, and snapshots by the entity id of the sensor they belong to. Alongside the in-progress window, the store keeps a copy of the hub settings that shape windows: tariff type, tariffs, price sensors, window length, the "treat solar as free" checkbox and the curtailment source.
+Everything in the store is keyed by IDs that never change. Home Assistant gives every hub a config entry id and every device a subentry id; renaming either changes only its title. Each total is keyed by the unique id of the entity that shows it, which starts with its owner's id (the config entry id for splits, the subentry id for device counters), and snapshots by the entity id of the sensor they belong to. Alongside the in-progress window, the store keeps a copy of the hub settings that shape windows: tariff type, tariffs, price sensors, window length, the "treat solar as free" checkbox and the curtailment source.
 
 The configuration can change while the hub is stopped, through an edit, or while it was disabled. On load, the engine reconciles the store with the current configuration:
 
@@ -246,7 +246,7 @@ Development runs in VS Code against a project virtualenv and in-process tests; n
 - Editor: Code OSS with the Python and Ruff extensions. Set `"python.analysis.typeCheckingMode": "standard"` so Pylance flags type mismatches while typing — annotations are not enforced at runtime.
 - Terminal: VS Code's terminal profile is bash. In fish, activate with `source .venv/bin/activate.fish` instead.
 - Environment: `.venv` in the project root, built with `uv` on Python 3.14 (`uv venv --python 3.14 .venv`, then `uv pip install --python .venv -r requirements-dev.txt`). Current Home Assistant requires Python 3.14.2+, and config subentries need Home Assistant 2025.3 or later. With an older Python, pip silently installs an old Home Assistant that lacks them, and the config flow fails to import.
-- Tests, two tiers: `test_calc.py` needs no Home Assistant and runs in milliseconds. `test_window.py` boots an in-process `hass` via `pytest-homeassistant-custom-component` and uses `async_fire_time_changed` to skip ahead through timers. Its behaviour tests drive the integration through `tests/simulator.py`; its lifecycle tests build a `WindowEngine` directly to check listener wiring on its own.
+- Tests, two tiers: `test_calc.py` needs no Home Assistant and runs in milliseconds. The rest boot an in-process `hass` via `pytest-homeassistant-custom-component` and use `async_fire_time_changed` to skip ahead through timers: `test_window.py` (windows, prices, resilience, logging; plus lifecycle tests on a bare `WindowEngine`), `test_sensor.py` (entities, classes, devices), `test_config_flow.py` (setup, validation, reconfiguring hubs and devices) and `test_persistence.py` (restarts and the restore table). Most drive the integration through `tests/simulator.py`. Expected values are worked out by hand from this doc's formulas, so a failing test means the code disagrees with the plan.
 - Frozen dataclasses (`WindowEnergy`, `EnergySplits`, `FinancialSplits`) are immutable: compute into locals, then construct once with keyword arguments.
 
 | Kind | Convention |
@@ -259,9 +259,10 @@ Development runs in VS Code against a project virtualenv and in-process tests; n
 
 ## Working agreement for Claude sessions
 
-The skeleton's `IMPLEMENT ME` bodies are the author's practice exercises: guide, explain, and review them, but don't write them unless asked.
+The skeleton's `IMPLEMENT ME` bodies in `custom_components/` are the author's practice exercises: guide, explain, and review them, but don't write them unless asked. The tests are Claude's: Claude writes and maintains the whole `tests/` directory, so the author can focus on the integration and check their work immediately.
 
-- Complete as shipped: `const.py`, `__init__.py`, `tests/simulator.py`, and the lifecycle tests at the bottom of `test_window.py`. Everything else holds exercises.
+- Complete as shipped: `const.py`, `__init__.py`, and everything under `tests/`. Everything else in `custom_components/` holds exercises.
+- Tests follow the design: when this doc changes, Claude updates the tests in the same change. New or changed tests are proven against a throwaway reference implementation kept outside the project (never copied in), and checked to fail when a matching bug is planted, so a red test always points at the integration, not at the test.
 - When the design changes, updating the skeleton's scaffolding to match is fair game for Claude: constants, signatures, stubs and their docstrings, tests, config-flow fields, `strings.json`, and the simulator. The function bodies stay exercises.
 - The author is new to Python, Home Assistant, and Linux, coming from C, assembly, and Delphi Pascal — explain idioms by contrast with those where it helps.
 - This doc describes the current design, as if it had always been that way. A new idea may start as a numbered addendum while it's evaluated together; once agreed, it's woven into the relevant sections and the addendum is removed before anything is implemented.

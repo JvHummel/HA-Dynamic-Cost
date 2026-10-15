@@ -260,9 +260,9 @@ class GeneralSubentryFlow(ConfigSubentryFlow):
 
         IMPLEMENT ME. Use ENERGY_SENSOR_SELECTOR for the sensor, as in the
         hub's step 1, and validate it with _check_sensors(). Unavailable
-        sensors need a confirmation step here too, like the hub's
-        async_step_confirm_unavailable, with its own strings under
-        config_subentries in strings.json.
+        sensors need a confirmation step here too, like the hub's: step id
+        "confirm_unavailable" (its strings are in place), after which the
+        device is created.
 
         Finish with self.async_create_entry(title=<name>, data=...).
         Remember: general devices are pure sub-metering and must never feed

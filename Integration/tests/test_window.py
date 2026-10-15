@@ -3,13 +3,14 @@
 These DO boot a Home Assistant instance -- but in-process, in about a second,
 with no restart and no real config directory.
 
-The simulator-driven tests at the top are exercises: the docstrings say what
-behaviour to pin down, the plan says what the behaviour should be. The
-lifecycle tests at the bottom are complete.
+Every expected number is worked out by hand from the plan's formulas, so a
+failure means the integration disagrees with the plan. The lifecycle tests at
+the bottom check start/stop wiring on a bare engine, without the simulator.
 """
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from datetime import timedelta
 
@@ -21,148 +22,362 @@ from pytest_homeassistant_custom_component.common import async_fire_time_changed
 from custom_components.dynamic_cost.const import (
     CONF_CURTAILMENT_SOURCE,
     CONF_EXPORT_PRICE_SENSOR,
+    CONF_EXPORT_TARIFF,
+    CONF_GRID_EXPORT_SENSOR,
+    CONF_GRID_IMPORT_SENSOR,
     CONF_IMPORT_PRICE_SENSOR,
+    CONF_IMPORT_TARIFF,
     CONF_TARIFF_MODE,
     CONF_WINDOW_MINUTES,
+    EXPORT_PRICE_GRACE_SECONDS,
     TariffMode,
 )
 from custom_components.dynamic_cost.window import WindowEngine
 
+from .simulator import CURTAILMENT as SIM_CURTAILMENT
+from .simulator import EXPORT_PRICE as SIM_EXPORT_PRICE
+from .simulator import GRID_EXPORT, GRID_IMPORT
+from .simulator import IMPORT_PRICE as SIM_IMPORT_PRICE
+
+SOLAR = "sensor.sim_solar"
+SOLAR_2 = "sensor.sim_solar_2"
+CHARGE = "sensor.sim_battery_charge"
+DISCHARGE = "sensor.sim_battery_discharge"
+CHARGE_2 = "sensor.sim_battery_2_charge"
+DISCHARGE_2 = "sensor.sim_battery_2_discharge"
+GENERAL = "sensor.sim_general"
+PAST_GRACE = EXPORT_PRICE_GRACE_SECONDS + 1
+
+
+async def _priced_window(simulator, import_price: float, export_price: float) -> None:
+    """Settle whatever window is open and open a fresh one at these prices.
+
+    When this returns, the new window's export price has locked, so energy
+    added next lands in a window priced at exactly import_price/export_price.
+    """
+    await simulator.async_advance_window(
+        import_price=import_price, export_price=export_price
+    )
+# end _priced_window
+
 
 async def test_single_window_settles(hass, simulator):
-    """One window with simple flows produces the expected splits.
+    """One window: solar runs the house, valued at the import price."""
+    await simulator.async_setup_hub(solar=[SOLAR])
+    await _priced_window(simulator, 0.30, 0.05)
 
-    WRITE ME.
+    simulator.advance_meter(SOLAR, 2.0)
+    await simulator.async_advance_window()
 
-        await simulator.async_setup_hub(solar=["sensor.sim_solar"])
-        simulator.advance_meter("sensor.sim_solar", 2.0)
-        simulator.set_price(import_price=0.30, export_price=0.05)
-        ... trigger a boundary ...
-        assert simulator.get_total("solar_to_house") == pytest.approx(...)
-    """
-    pytest.skip("exercise: write this test")
+    assert simulator.get_total("house_energy_usage") == pytest.approx(2.0)
+    assert simulator.get_total("solar_to_house") == pytest.approx(2.0)
+    assert simulator.get_total("solar_to_grid") == pytest.approx(0.0)
+    assert simulator.get_total("solar_to_house_savings") == pytest.approx(0.60)
+    assert simulator.get_total("house_energy_usage_cost") == pytest.approx(0.60)
+    assert simulator.get_total("grid_import_cost") == pytest.approx(0.0)
 # end test_single_window_settles
 
 
 async def test_read_once_leaves_no_gap(hass, simulator):
-    """Deltas across consecutive windows must sum to the total energy moved.
+    """Deltas across consecutive windows sum to the total energy moved.
 
-    WRITE ME. This is the regression test for the read-once rule: run several
-    windows, advancing the meter between each, then assert the accumulated
-    total equals the meter's overall movement. If anyone ever reintroduces a
-    double read, this is the test that catches it.
+    The regression test for the read-once rule: if a boundary ever reads a
+    sensor twice, energy goes missing between windows and these totals drift.
     """
-    pytest.skip("exercise: write this test")
+    await simulator.async_setup_hub()
+    await _priced_window(simulator, 0.20, 0.05)
+
+    for kwh in (1.0, 2.5, 0.5):      # windows priced 0.20, 0.21, 0.22
+        simulator.advance_meter(GRID_IMPORT, kwh)
+        await simulator.async_advance_window()
+    # end for
+
+    assert simulator.get_total("house_energy_usage") == pytest.approx(4.0)
+    assert simulator.get_total("grid_to_house") == pytest.approx(4.0)
+    assert simulator.get_total("grid_import_cost") == pytest.approx(
+        1.0 * 0.20 + 2.5 * 0.21 + 0.5 * 0.22
+    )
 # end test_read_once_leaves_no_gap
 
 
 async def test_unavailable_device_contributes_zero_then_catches_up(hass, simulator):
-    """An offline sensor sits out its windows, then reports the whole gap.
+    """An offline sensor sits out its windows, then reports the whole gap."""
+    await simulator.async_setup_hub(solar=[SOLAR])
+    await _priced_window(simulator, 0.30, 0.05)
 
-    WRITE ME.
+    simulator.set_unavailable(SOLAR)
+    await simulator.async_advance_window()
+    assert simulator.get_total("solar_to_house") == pytest.approx(0.0)
+    assert simulator.get_total("export_energy", device="Solar 1") == pytest.approx(0.0)
 
-        simulator.set_unavailable("sensor.sim_solar")
-        ... run a window, assert solar contributed 0 ...
-        simulator.advance_meter("sensor.sim_solar", 5.0)   # it kept producing
-        simulator.restore("sensor.sim_solar")
-        ... run another window, assert the full 5.0 lands now ...
-    """
-    pytest.skip("exercise: write this test")
+    simulator.advance_meter(SOLAR, 5.0)   # back online: it kept producing
+    await simulator.async_advance_window()
+    assert simulator.get_total("solar_to_house") == pytest.approx(5.0)
+    assert simulator.get_total("export_energy", device="Solar 1") == pytest.approx(5.0)
 # end test_unavailable_device_contributes_zero_then_catches_up
 
 
 async def test_unavailable_import_price_keeps_window_open(hass, simulator):
-    """An unavailable import price is 'no change', never a boundary.
+    """An unavailable import price is 'no change', never a boundary."""
+    await simulator.async_setup_hub()
+    await _priced_window(simulator, 0.30, 0.05)
+    simulator.advance_meter(GRID_IMPORT, 1.0)
 
-    WRITE ME. Assert no new window was settled while it was down.
-    """
-    pytest.skip("exercise: write this test")
+    simulator.set_unavailable(SIM_IMPORT_PRICE)
+    await simulator.async_wait(3600)
+    assert simulator.get_total("house_energy_usage") == pytest.approx(0.0)
+
+    simulator.set_price(import_price=0.40)    # a real, different price: boundary
+    await hass.async_block_till_done()
+    assert simulator.get_total("house_energy_usage") == pytest.approx(1.0)
+    assert simulator.get_total("grid_import_cost") == pytest.approx(0.30)
 # end test_unavailable_import_price_keeps_window_open
 
 
 async def test_late_export_price_still_locks(hass, simulator):
-    """An export price arriving after the grace period still locks the window.
+    """A window without an export price is held open until one arrives.
 
-    WRITE ME. Use async_fire_time_changed to push past the 60s grace period
-    with the export price unavailable, then change the import price so the
-    window is ready to close. Assert nothing settled (the window is held
-    open), then bring the export price back and assert the window settles at
-    that moment.
+    While it is held, energy keeps accumulating into it and later import
+    price changes only update the price the next window opens with.
     """
-    pytest.skip("exercise: write this test")
+    await simulator.async_setup_hub()
+    await simulator.async_wait(PAST_GRACE)          # setup window locks
+    simulator.set_unavailable(SIM_EXPORT_PRICE)
+    simulator.set_price(import_price=0.30)           # opens a window w/o export
+    await hass.async_block_till_done()
+
+    simulator.advance_meter(GRID_IMPORT, 1.0)
+    await simulator.async_wait(PAST_GRACE)           # grace passes, no lock
+    simulator.set_price(import_price=0.40)           # ready to close: held
+    await hass.async_block_till_done()
+    assert simulator.get_total("house_energy_usage") == pytest.approx(0.0)
+
+    simulator.advance_meter(GRID_IMPORT, 0.5)        # still this window
+    simulator.set_price(import_price=0.45)           # latest price wins
+    await hass.async_block_till_done()
+    assert simulator.get_total("house_energy_usage") == pytest.approx(0.0)
+
+    simulator.set_price(export_price=0.05)           # late arrival: settles now
+    await hass.async_block_till_done()
+    assert simulator.get_total("house_energy_usage") == pytest.approx(1.5)
+    assert simulator.get_total("grid_import_cost") == pytest.approx(1.5 * 0.30)
+
+    simulator.advance_meter(GRID_IMPORT, 1.0)        # next window: at 0.45
+    await simulator.async_advance_window()
+    assert simulator.get_total("grid_import_cost") == pytest.approx(
+        1.5 * 0.30 + 1.0 * 0.45
+    )
 # end test_late_export_price_still_locks
 
 
 async def test_energy_counter_reset_counts_as_zero(hass, simulator):
-    """A meter reading lower than its snapshot is a reset, not negative energy.
+    """A meter reading lower than its snapshot is a reset, not negative energy."""
+    await simulator.async_setup_hub(solar=[SOLAR])
+    await _priced_window(simulator, 0.30, 0.05)
 
-    WRITE ME. Let a solar meter drop (e.g. 10.0 -> 0.5, a daily reset), run a
-    window and assert solar contributed 0. Then advance it by 2.0 and assert
-    the next window sees exactly 2.0: the snapshot moved to the reset value.
-    """
-    pytest.skip("exercise: write this test")
+    simulator.set_meter(SOLAR, 10.0)
+    await simulator.async_advance_window()
+    simulator.set_meter(SOLAR, 0.5)                  # e.g. a daily reset
+    await simulator.async_advance_window()
+    assert simulator.get_total("export_energy", device="Solar 1") == pytest.approx(10.0)
+
+    simulator.advance_meter(SOLAR, 2.0)              # counted from the reset value
+    await simulator.async_advance_window()
+    assert simulator.get_total("export_energy", device="Solar 1") == pytest.approx(12.0)
+    assert simulator.get_total("solar_to_house") == pytest.approx(12.0)
 # end test_energy_counter_reset_counts_as_zero
 
 
 async def test_general_device_does_not_feed_splits(hass, simulator):
-    """General devices are sub-metering only.
+    """General devices are sub-metering only, valued at the import price."""
+    await simulator.async_setup_hub(general=[GENERAL])
+    await _priced_window(simulator, 0.30, 0.05)
 
-    WRITE ME. Set up a hub with a general device, advance only its meter,
-    and assert the hub-level splits are unchanged while the device's own
-    counters moved.
-    """
-    pytest.skip("exercise: write this test")
+    simulator.advance_meter(GRID_IMPORT, 3.0)
+    simulator.advance_meter(GENERAL, 1.0)            # part of those 3 kWh
+    await simulator.async_advance_window()
+
+    assert simulator.get_total("house_energy_usage") == pytest.approx(3.0)
+    assert simulator.get_total("grid_import_cost") == pytest.approx(0.90)
+    general = "General 1"
+    assert simulator.get_total("import_energy", device=general) == pytest.approx(1.0)
+    assert simulator.get_total("import_value", device=general) == pytest.approx(0.30)
 # end test_general_device_does_not_feed_splits
+
+
+async def test_solar_and_battery_devices_aggregate(hass, simulator):
+    """Every solar device adds to Solar, every battery to charge/discharge."""
+    await simulator.async_setup_hub(
+        solar=[SOLAR, SOLAR_2],
+        batteries=[(CHARGE, DISCHARGE), (CHARGE_2, DISCHARGE_2)],
+    )
+    await _priced_window(simulator, 0.30, 0.10)
+
+    simulator.advance_meter(SOLAR, 1.0)
+    simulator.advance_meter(SOLAR_2, 2.0)            # Solar = 3
+    simulator.advance_meter(CHARGE, 0.5)
+    simulator.advance_meter(CHARGE_2, 0.5)           # BatteryCharge = 1
+    await simulator.async_advance_window()
+
+    # HouseEnergyUsage = 3 - 1 = 2, all of it from solar; the rest charged.
+    assert simulator.get_total("house_energy_usage") == pytest.approx(2.0)
+    assert simulator.get_total("solar_to_house") == pytest.approx(2.0)
+    assert simulator.get_total("solar_to_battery") == pytest.approx(1.0)
+    assert simulator.get_total("solar_to_battery_cost") == pytest.approx(0.10)
+    assert simulator.get_total("export_energy", device="Solar 2") == pytest.approx(2.0)
+    battery = "Battery 1"
+    assert simulator.get_total("import_energy", device=battery) == pytest.approx(0.5)
+    assert simulator.get_total("export_energy", device=battery) == pytest.approx(0.0)
+# end test_solar_and_battery_devices_aggregate
+
+
+async def test_treat_solar_as_free_checkbox(hass, simulator):
+    """With the checkbox on, solar into the battery never costs anything."""
+    await simulator.async_setup_hub(
+        solar=[SOLAR], batteries=[(CHARGE, DISCHARGE)], treat_solar_as_free=True
+    )
+    await _priced_window(simulator, 0.30, 0.10)
+
+    simulator.advance_meter(SOLAR, 3.0)
+    simulator.advance_meter(CHARGE, 3.0)
+    await simulator.async_advance_window()
+
+    assert simulator.get_total("solar_to_battery") == pytest.approx(3.0)
+    assert simulator.get_total("solar_to_battery_cost") == pytest.approx(0.0)
+# end test_treat_solar_as_free_checkbox
 
 
 async def test_curtailed_window_counts_solar_to_battery_as_free(hass, simulator):
     """Curtailment locked on for a window zeroes its solar-to-battery cost.
 
-    WRITE ME. async_setup_hub(curtailment=True, ...), set_curtailed(True)
-    before the grace period ends, put solar into the battery, settle the
-    window and assert solar_to_battery_cost did not move. A second window
-    with curtailment off should count it at the export price.
+    The state locks when the grace period ends; switching it later only
+    affects the next window.
     """
-    pytest.skip("exercise: write this test")
+    await simulator.async_setup_hub(
+        solar=[SOLAR], batteries=[(CHARGE, DISCHARGE)], curtailment=True
+    )
+    simulator.set_curtailed(True)
+    await _priced_window(simulator, 0.30, 0.10)      # opens curtailed, locks
+
+    simulator.advance_meter(SOLAR, 3.0)
+    simulator.advance_meter(CHARGE, 3.0)
+    simulator.set_curtailed(False)                   # too late for this window
+    await simulator.async_advance_window()
+    assert simulator.get_total("solar_to_battery") == pytest.approx(3.0)
+    assert simulator.get_total("solar_to_battery_cost") == pytest.approx(0.0)
+
+    simulator.advance_meter(SOLAR, 3.0)              # next window: not curtailed
+    simulator.advance_meter(CHARGE, 3.0)
+    await simulator.async_advance_window()
+    assert simulator.get_total("solar_to_battery_cost") == pytest.approx(0.30)
 # end test_curtailed_window_counts_solar_to_battery_as_free
 
 
 async def test_unavailable_curtailment_holds_window_open(hass, simulator):
-    """No curtailment reading means no lock, and no lock means no close.
+    """No curtailment reading means no lock, and no lock means no close."""
+    await simulator.async_setup_hub(
+        solar=[SOLAR], batteries=[(CHARGE, DISCHARGE)], curtailment=True
+    )
+    simulator.set_price(export_price=0.10)
+    await simulator.async_wait(PAST_GRACE)           # setup window locks
+    simulator.set_unavailable(SIM_CURTAILMENT)
+    simulator.set_price(import_price=0.30)           # opens a window w/o state
+    await hass.async_block_till_done()
 
-    WRITE ME. Same shape as test_late_export_price_still_locks, but with the
-    curtailment source unavailable instead of the export price.
-    """
-    pytest.skip("exercise: write this test")
+    simulator.advance_meter(SOLAR, 3.0)
+    simulator.advance_meter(CHARGE, 3.0)
+    await simulator.async_wait(PAST_GRACE)           # export locks, curtailment can't
+    simulator.set_price(import_price=0.40)           # ready to close: held
+    await hass.async_block_till_done()
+    assert simulator.get_total("solar_to_battery") == pytest.approx(0.0)
+
+    simulator.set_curtailed(True)                    # late arrival: settles now
+    await hass.async_block_till_done()
+    assert simulator.get_total("solar_to_battery") == pytest.approx(3.0)
+    assert simulator.get_total("solar_to_battery_cost") == pytest.approx(0.0)
 # end test_unavailable_curtailment_holds_window_open
 
 
 async def test_first_start_without_import_price_opens_no_window(hass, simulator):
-    """First start with no import price: no window until a real price arrives.
+    """First start with no import price: nothing is tracked until one arrives."""
+    await simulator.async_setup_hub(solar=[SOLAR], import_price_available=False)
 
-    WRITE ME. async_setup_hub(import_price_available=False, ...), move some
-    energy and assert nothing is tracked. Then publish a real import price
-    and assert a window opened (not settled) -- the energy from before that
-    moment is never counted.
-    """
-    pytest.skip("exercise: write this test")
+    simulator.advance_meter(SOLAR, 2.0)              # before any window: never counted
+    await simulator.async_wait(3600)
+    assert simulator.get_total("solar_to_house") == pytest.approx(0.0)
+
+    simulator.set_price(import_price=0.30)           # opens the first window
+    await hass.async_block_till_done()
+    assert simulator.get_total("solar_to_house") == pytest.approx(0.0)
+
+    simulator.advance_meter(SOLAR, 1.0)
+    await simulator.async_advance_window()
+    assert simulator.get_total("solar_to_house") == pytest.approx(1.0)
+    assert simulator.get_total("solar_to_house_savings") == pytest.approx(0.30)
 # end test_first_start_without_import_price_opens_no_window
 
 
 async def test_unavailable_logging_is_edge_triggered(hass, simulator, caplog):
-    """One warning when a sensor goes down, one info line when it recovers.
+    """One warning when a sensor goes down, one info line when it recovers."""
+    caplog.set_level(logging.INFO, logger="custom_components.dynamic_cost")
+    await simulator.async_setup_hub(solar=[SOLAR])
+    await _priced_window(simulator, 0.30, 0.05)
 
-    WRITE ME. Knock a sensor out, run several windows, and assert the
-    warning appears exactly once in caplog.records. Restore it and assert a
-    single recovery line.
-    """
-    pytest.skip("exercise: write this test")
+    def lines(level: int) -> int:
+        return sum(
+            1 for record in caplog.records
+            if record.levelno == level
+            and record.name.startswith("custom_components.dynamic_cost")
+            and SOLAR in record.getMessage()
+        )
+    # end lines
+
+    simulator.set_unavailable(SOLAR)
+    for _ in range(3):
+        await simulator.async_advance_window()
+    # end for
+    assert lines(logging.WARNING) == 1
+
+    simulator.restore(SOLAR)
+    for _ in range(2):
+        await simulator.async_advance_window()
+    # end for
+    assert lines(logging.INFO) == 1
+    assert lines(logging.WARNING) == 1
 # end test_unavailable_logging_is_edge_triggered
+
+
+async def test_fixed_tariff_windows(hass, simulator):
+    """Fixed tariffs: timer-driven windows at the configured prices."""
+    await simulator.async_setup_hub(
+        solar=[SOLAR],
+        tariff_mode=TariffMode.FIXED,
+        import_tariff=0.25,
+        export_tariff=0.08,
+        window_minutes=15,
+    )
+
+    simulator.advance_meter(SOLAR, 2.0)
+    simulator.advance_meter(GRID_EXPORT, 1.0)        # house used 1, exported 1
+    simulator.set_price(import_price=0.99)           # ignored in fixed mode
+    await simulator.async_advance_window()
+
+    assert simulator.get_total("solar_to_house") == pytest.approx(1.0)
+    assert simulator.get_total("solar_to_grid") == pytest.approx(1.0)
+    assert simulator.get_total("solar_to_house_savings") == pytest.approx(0.25)
+    assert simulator.get_total("solar_to_grid_profit") == pytest.approx(0.08)
+    assert simulator.get_total("grid_export_cost") == pytest.approx(-0.08)
+
+    simulator.advance_meter(SOLAR, 1.0)              # a second window
+    await simulator.async_advance_window()
+    assert simulator.get_total("solar_to_house_savings") == pytest.approx(0.50)
+# end test_fixed_tariff_windows
+
 
 # ---------------------------------------------------------------------------
 # Engine lifecycle: async_start / async_stop
 #
-# Not exercises. These build a WindowEngine directly instead of going through
+# These build a WindowEngine directly instead of going through
 # the simulator, so they test the listener wiring on its own. Each handler is
 # swapped for a recorder before start, so the tests only see WHETHER a
 # handler fired, never what it did.
@@ -204,9 +419,13 @@ def _make_engine(
 ) -> tuple[WindowEngine, Counter]:
     """An engine with no devices and every handler replaced by a recorder."""
     config = {
+        CONF_GRID_IMPORT_SENSOR: "sensor.test_grid_import",
+        CONF_GRID_EXPORT_SENSOR: "sensor.test_grid_export",
         CONF_TARIFF_MODE: tariff_mode,
         CONF_IMPORT_PRICE_SENSOR: IMPORT_PRICE,
         CONF_EXPORT_PRICE_SENSOR: EXPORT_PRICE,
+        CONF_IMPORT_TARIFF: 0.25,
+        CONF_EXPORT_TARIFF: 0.08,
         CONF_WINDOW_MINUTES: WINDOW_MINUTES,
     }
     if curtailment:
