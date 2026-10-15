@@ -14,7 +14,7 @@ import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
-
+from datetime import timedelta
 from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.const import (
     STATE_UNAVAILABLE,
@@ -32,7 +32,9 @@ from .calc import WindowEnergy
 from .const import (
     CONF_CURTAILMENT_SOURCE,
     CONF_EXPORT_PRICE_SENSOR,
+    CONF_EXPORT_TARIFF,
     CONF_IMPORT_PRICE_SENSOR,
+    CONF_IMPORT_TARIFF,
     CONF_TARIFF_MODE,
     CONF_TREAT_SOLAR_AS_FREE,
     CONF_WINDOW_MINUTES,
@@ -151,6 +153,8 @@ class WindowEngine:
         _async_import_price_changed opens the first one when a real price
         arrives. (Plan: window engine, first window.)
         """
+        import_price = None
+
         match self._config.get(CONF_TARIFF_MODE):
             case TariffMode.DYNAMIC:
                 self._unsubscribes.append(
@@ -168,24 +172,38 @@ class WindowEngine:
                         self._async_export_price_changed,
                     )
                 )
+                
+                import_price = self._read_entity_state(
+                    self._config.get(
+                        CONF_IMPORT_PRICE_SENSOR
+                    )
+                )
+            # end case DYNAMIC
 
             case TariffMode.FIXED:
                 self._unsubscribes.append(
                     async_track_time_interval(
                         self._hass,
                         self._async_boundary_reached,
-                        self._config.get(CONF_WINDOW_MINUTES) * 60,
+                        timedelta(
+                            minutes = self._config.get(
+                                CONF_WINDOW_MINUTES
+                            )
+                        ),
                     )
                 )
+
+                import_price = self._config.get(CONF_IMPORT_TARIFF)
+            # end case FIXED
 
             case _:
                 # Future modes?
                 raise NotImplementedError
+            # end case _
         # end match
 
         # Curtailment switch is relevant for both contract types.
         curtailment_switch = self._config.get(CONF_CURTAILMENT_SOURCE)
-
 
         if curtailment_switch is not None:
             self._unsubscribes.append(
@@ -197,7 +215,7 @@ class WindowEngine:
             )
         # end if
 
-        #_open_window(self)
+        self._open_window(import_price)
     # end async_start
 
     @callback
