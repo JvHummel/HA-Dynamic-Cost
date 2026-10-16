@@ -73,7 +73,11 @@
   },
   "config_subentries": {
     "general": {
-      "title": "Add device",
+      "entry_type": "General device",
+      "initiate_flow": {
+        "user": "Add general device",
+        "reconfigure": "Reconfigure general device"
+      },
       "step": {
         "user": {
           "title": "General device",
@@ -103,7 +107,11 @@
       }
     },
     "solar": {
-      "title": "Add solar panels",
+      "entry_type": "Solar panels",
+      "initiate_flow": {
+        "user": "Add solar panels",
+        "reconfigure": "Reconfigure solar panels"
+      },
       "step": {
         "user": {
           "title": "Solar panels",
@@ -133,7 +141,11 @@
       }
     },
     "battery": {
-      "title": "Add battery",
+      "entry_type": "Battery",
+      "initiate_flow": {
+        "user": "Add battery",
+        "reconfigure": "Reconfigure battery"
+      },
       "step": {
         "user": {
           "title": "Battery",

@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  # Branches only: a version tag runs this through release.yml instead.
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+  # Weekly as well: the dependencies follow the newest Home Assistant, so a
+  # new release can break things without any push from us.
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Lint, tests and mutation check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # uv fetches the Python that current Home Assistant needs and creates
+      # .venv, the same way the README sets it up locally.
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+          activate-environment: true
+
+      - name: Install dependencies
+        run: uv pip install -r requirements-dev.txt
+
+      - name: Ruff
+        run: ruff check custom_components tests scripts
+
+      - name: Tests
+        run: pytest
+
+      # Plants deliberate bugs one at a time; each must make the suite fail.
+      - name: Mutation check
+        run: python scripts/mutation_check.py
+
+  hassfest:
+    name: hassfest (Home Assistant's own validation)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    name: HACS validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: hacs/action@main
+        with:
+          category: integration
+          # Brands only applies once the integration is submitted to
+          # home-assistant/brands; a custom repository doesn't need it.
+          ignore: brands

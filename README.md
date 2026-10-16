@@ -1,5 +1,7 @@
 # Dynamic Cost
 
+[![CI](https://github.com/JvHummel/HA-Dynamic-Cost/actions/workflows/ci.yml/badge.svg)](https://github.com/JvHummel/HA-Dynamic-Cost/actions/workflows/ci.yml)
+
 A Home Assistant integration that splits your household's energy flows —
 grid, solar, battery and house — and values every split at the prices that
 applied when the energy moved: fixed tariffs, or a dynamic contract's price
@@ -72,3 +74,25 @@ Python for you:
     pytest                             # the whole suite, a few seconds
     ruff check custom_components tests scripts
     python scripts/mutation_check.py   # every planted bug must be CAUGHT
+
+GitHub Actions runs the same three on every push and pull request, plus
+hassfest (Home Assistant's own manifest and translation checks) and HACS
+validation, and repeats them weekly to catch breakage from new Home
+Assistant releases. See `.github/workflows/ci.yml`.
+
+## Releasing
+
+1. Set the new version in `custom_components/dynamic_cost/manifest.json`
+   (for example `0.1.1`), commit and push.
+2. Tag that commit `v` plus the same version, and push the tag:
+
+       git tag v0.1.1
+       git push origin v0.1.1
+
+   (In VS Code: Source Control → ⋯ → Tags → Create Tag, then push it.)
+
+The Release workflow runs the full CI on the tagged commit, checks that the
+tag matches the manifest, and publishes a GitHub release with notes generated
+from the commits since the previous tag. HACS then offers it as an update. A
+tag with a suffix, such as `v0.2.0-beta.1`, becomes a pre-release, which HACS
+only offers to users who opted into betas.
