@@ -96,3 +96,7 @@ tag matches the manifest, and publishes a GitHub release with notes generated
 from the commits since the previous tag. HACS then offers it as an update. A
 tag with a suffix, such as `v0.2.0-beta.1`, becomes a pre-release, which HACS
 only offers to users who opted into betas.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
