@@ -1,0 +1,14 @@
+{
+  "domain": "dynamic_cost",
+  "name": "Dynamic Cost",
+  "codeowners": [
+    "@JvHummel"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/JvHummel/HA-Dynamic-Cost",
+  "integration_type": "hub",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/JvHummel/HA-Dynamic-Cost/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

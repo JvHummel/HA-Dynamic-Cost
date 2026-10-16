@@ -1,7 +1,4 @@
-
-Integration/tests/__pycache__/
-
-Integration/custom_components/dynamic_cost/__pycache__/
-
-Integration/.venv/
-
+__pycache__/
+.venv/
+.pytest_cache/
+.ruff_cache/

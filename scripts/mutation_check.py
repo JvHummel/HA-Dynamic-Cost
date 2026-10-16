@@ -1,6 +1,6 @@
 """Check that the test suite catches real bugs, not just that it passes.
 
-Run from Integration/:  .venv/bin/python scripts/mutation_check.py
+Run from the repository root:  .venv/bin/python scripts/mutation_check.py
 
 Copies the project into a temporary directory, runs the whole suite there
 (it must pass), then plants each bug below one at a time; every one must make
