@@ -17,6 +17,7 @@ from custom_components.dynamic_cost.const import (
     CONF_TARIFF_MODE,
     CONF_WINDOW_MINUTES,
     DOMAIN,
+    EXPORT_PRICE_GRACE_SECONDS,
     DeviceType,
     TariffMode,
 )
@@ -27,6 +28,7 @@ from .simulator import GRID_EXPORT
 SOLAR = "sensor.sim_solar"
 SOLAR_2 = "sensor.sim_solar_2"
 SOLAR_NEW = "sensor.sim_solar_new"
+PAST_GRACE = EXPORT_PRICE_GRACE_SECONDS + 1
 
 
 async def _hub_with_one_settled_window(simulator, **hub_options) -> None:
@@ -84,6 +86,28 @@ async def test_locked_export_price_survives_restart(hass, simulator):
     assert simulator.get_total("solar_to_grid") == pytest.approx(2.0)
     assert simulator.get_total("solar_to_grid_profit") == pytest.approx(2.0 * 0.05)
 # end test_locked_export_price_survives_restart
+
+
+async def test_restored_window_counts_its_grace_period_as_over(hass, simulator):
+    """Stopped mid-grace: after the restart, the window locks what it has at once.
+
+    Its grace timer died with the restart, so nothing else would ever lock it.
+    """
+    await simulator.async_setup_hub(solar=[SOLAR])
+    await simulator.async_wait(PAST_GRACE)           # setup window locks
+    simulator.set_price(export_price=0.05)
+    simulator.set_price(import_price=0.30)           # opens a window, grace running
+    await hass.async_block_till_done()
+    simulator.advance_meter(SOLAR, 2.0)
+    simulator.advance_meter(GRID_EXPORT, 2.0)
+
+    await simulator.async_restart()                  # still inside the grace period
+    simulator.set_price(import_price=0.40)           # boundary, no time has passed
+    await hass.async_block_till_done()
+
+    assert simulator.get_total("solar_to_grid") == pytest.approx(2.0)
+    assert simulator.get_total("solar_to_grid_profit") == pytest.approx(2.0 * 0.05)
+# end test_restored_window_counts_its_grace_period_as_over
 
 
 async def test_renamed_device_keeps_its_totals(hass, simulator):

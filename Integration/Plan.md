@@ -190,6 +190,8 @@ The configuration can change while the hub is stopped, through an edit, or while
 | Device or grid sensor switched to another sensor | The new sensor has no snapshot, so its first reading sets a fresh baseline and contributes 0. The device keeps its totals |
 | Window-shaping hub settings changed (including tariff type) | The stored window is discarded and the first-window rules apply. Snapshots of unchanged sensors are kept, so no energy is lost: it lands in the new first window, just as downtime energy does after a restart. All totals are kept |
 
+A restored window's grace period counts as over, since its timer didn't survive the restart. Any tentative export price or curtailment state it holds locks immediately, and if a close was pending and both are now locked, the window closes. Anything still missing waits for a late arrival, exactly as after a normal grace period.
+
 ## Entities and aggregation
 
 **Hub-level**: the 8 energy-split sensors and 10 financial-split sensors, built each window from `Solar` = sum of every solar device's export delta, `BatteryCharge` / `BatteryDischarge` = summed across all battery devices, `GridImport` / `GridExport` read straight from the hub's own two sensors.
@@ -262,7 +264,7 @@ Development runs in VS Code against a project virtualenv and in-process tests; n
 The skeleton's `IMPLEMENT ME` bodies in `custom_components/` are the author's practice exercises: guide, explain, and review them, but don't write them unless asked. The tests are Claude's: Claude writes and maintains the whole `tests/` directory, so the author can focus on the integration and check their work immediately.
 
 - Complete as shipped: `const.py`, `__init__.py`, and everything under `tests/`. Everything else in `custom_components/` holds exercises.
-- Tests follow the design: when this doc changes, Claude updates the tests in the same change. New or changed tests are proven against a throwaway reference implementation kept outside the project (never copied in), and checked to fail when a matching bug is planted, so a red test always points at the integration, not at the test.
+- Tests follow the design: when this doc changes, Claude updates the tests in the same change. New or changed tests are proven against Claude's reference implementation in the gitignored `HA-Dynamic-Cost/.reference/` (a spoiler for the exercises, never copied into the integration): `Integration/.venv/bin/python .reference/verify.py` runs the suite against it and plants a list of matching bugs, each of which must make a test fail. So a red test always points at the integration, not at the test. Claude keeps the reference and its bug list in step with the tests.
 - When the design changes, updating the skeleton's scaffolding to match is fair game for Claude: constants, signatures, stubs and their docstrings, tests, config-flow fields, `strings.json`, and the simulator. The function bodies stay exercises.
 - The author is new to Python, Home Assistant, and Linux, coming from C, assembly, and Delphi Pascal — explain idioms by contrast with those where it helps.
 - This doc describes the current design, as if it had always been that way. A new idea may start as a numbered addendum while it's evaluated together; once agreed, it's woven into the relevant sections and the addendum is removed before anything is implemented.

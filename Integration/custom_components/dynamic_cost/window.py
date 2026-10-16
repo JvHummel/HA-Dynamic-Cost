@@ -147,9 +147,14 @@ class WindowEngine:
     async def async_start(self) -> None:
         """Register listeners/timers and open the first window if possible.
 
-        First of all, await self._async_restore(). A restored in-progress
-        window simply carries on, so the first-window rules below only apply
-        when there was nothing to restore.
+        First of all, await self._async_restore(). If it returns True, an
+        in-progress window was restored and simply carries on; the
+        first-window rules below only apply when it returns False.
+
+        A restored window's grace timer didn't survive the restart, so its
+        grace period counts as over (plan: Persistence): set grace_elapsed,
+        lock any tentative export price and curtailment state now, and close
+        the window if a close was pending and both are locked.
 
         Fixed mode: open the first window right away, at CONF_IMPORT_TARIFF.
         Dynamic mode: read the import price sensor. A real reading opens the
@@ -266,8 +271,13 @@ class WindowEngine:
 
     # -- persistence -------------------------------------------------------
 
-    async def _async_restore(self) -> None:
+    async def _async_restore(self) -> bool:
         """Load this hub's store, if it has one.
+
+        Returns True if an in-progress window was restored, False if not --
+        including when totals and snapshots were restored but the window was
+        discarded because its settings changed. async_start opens a new
+        window exactly when this returns False.
 
         IMPLEMENT ME.
 
