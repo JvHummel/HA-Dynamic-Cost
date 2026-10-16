@@ -18,7 +18,6 @@ from .const import (
     CONF_DEVICE_NAME,
     CONF_EXPORT_SENSOR,
     CONF_IMPORT_SENSOR,
-    DOMAIN,
     STORAGE_VERSION,
     DeviceType,
 )

@@ -172,5 +172,78 @@
         "dynamic": "Dynamic"
       }
     }
+  },
+  "entity": {
+    "sensor": {
+      "house_energy_usage": {
+        "name": "House energy usage"
+      },
+      "solar_to_house": {
+        "name": "Solar to house"
+      },
+      "solar_to_battery": {
+        "name": "Solar to battery"
+      },
+      "grid_to_battery": {
+        "name": "Grid to battery"
+      },
+      "solar_to_grid": {
+        "name": "Solar to grid"
+      },
+      "grid_to_house": {
+        "name": "Grid to house"
+      },
+      "battery_to_house": {
+        "name": "Battery to house"
+      },
+      "battery_to_grid": {
+        "name": "Battery to grid"
+      },
+      "grid_import_cost": {
+        "name": "Grid import cost"
+      },
+      "grid_export_cost": {
+        "name": "Grid export cost"
+      },
+      "house_energy_usage_cost": {
+        "name": "House energy usage cost"
+      },
+      "solar_to_house_savings": {
+        "name": "Solar to house savings"
+      },
+      "solar_to_battery_cost": {
+        "name": "Solar to battery cost"
+      },
+      "grid_to_battery_cost": {
+        "name": "Grid to battery cost"
+      },
+      "solar_to_grid_profit": {
+        "name": "Solar to grid profit"
+      },
+      "grid_to_house_cost": {
+        "name": "Grid to house cost"
+      },
+      "battery_to_house_savings": {
+        "name": "Battery to house savings"
+      },
+      "battery_to_grid_profit": {
+        "name": "Battery to grid profit"
+      },
+      "general_import_energy": {
+        "name": "Energy used"
+      },
+      "general_import_value": {
+        "name": "Energy cost"
+      },
+      "solar_export_energy": {
+        "name": "Energy produced"
+      },
+      "battery_import_energy": {
+        "name": "Energy charged"
+      },
+      "battery_export_energy": {
+        "name": "Energy discharged"
+      }
+    }
   }
 }

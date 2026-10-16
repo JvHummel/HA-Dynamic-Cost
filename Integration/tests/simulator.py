@@ -1,7 +1,5 @@
 """A fake Home Assistant world for driving Dynamic Cost during development.
 
-This file is COMPLETE and working. It is your test bench, not an exercise.
-
 The point: you can push meter readings and price changes at your integration
 and watch what comes out, in milliseconds, without ever restarting Home
 Assistant. Nothing here touches a real HA instance -- it drives the same

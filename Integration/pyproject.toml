@@ -10,3 +10,7 @@ target-version = "py314"
 select = ["E", "F", "I", "N", "UP", "B", "SIM"]
 # N = pep8-naming. This is the rule set that enforces snake_case functions and
 # variables; Home Assistant runs it on every integration.
+
+[tool.ruff.lint.per-file-ignores]
+# Planting points quote the integration's code verbatim, long lines included.
+"scripts/mutation_check.py" = ["E501"]

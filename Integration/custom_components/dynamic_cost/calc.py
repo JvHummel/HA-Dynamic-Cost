@@ -2,8 +2,8 @@
 
 IMPORTANT: this module must never import Home Assistant. It is plain
 arithmetic on plain numbers, so you can test it with hand-worked values
-without any of the framework being involved. Build and finish this file
-FIRST -- everything else depends on it being correct.
+without any of the framework being involved. Everything else depends on it
+being correct.
 
 Everything here operates on a single tracking window's energy deltas.
 """
@@ -84,7 +84,8 @@ def calculate_energy_splits(energy: WindowEnergy) -> EnergySplits:
                                     house_energy_usage - energy.battery_discharge))
 
     solar_to_battery   = max(0, energy.solar - energy.grid_export - solar_to_house)
-    grid_to_battery    = min(energy.grid_import, energy.battery_charge - solar_to_battery)
+    grid_to_battery    = min(energy.grid_import,
+                             energy.battery_charge - solar_to_battery)
     solar_to_grid      = energy.solar - solar_to_battery - solar_to_house
     grid_to_house      = max(0, energy.grid_import - grid_to_battery)
     battery_to_house   = max(0, house_energy_usage - grid_to_house

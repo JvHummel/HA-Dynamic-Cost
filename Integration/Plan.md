@@ -12,8 +12,6 @@ Five components make up the integration:
 4. **Entities** — the sensors Home Assistant shows, built from the engine's output at each window close.
 5. **Persistence** — cumulative totals, in-progress window state, and the locked export price all survive a restart, in one store per hub owned by the window engine.
 
-Suggested build order is in the last section.
-
 ## Calculation engine
 
 Plain arithmetic, decoupled from Home Assistant entirely — testable with hand-worked numbers before any integration code exists. Running totals live in the window engine's own state (not `utility_meter`), so outputs are free to go negative, exactly as the spec calls for.
@@ -233,14 +231,6 @@ Config-flow validation is two cheap layers:
 
    Hard errors block finishing setup until the field is corrected.
 
-## Suggested build order
-
-Build bottom-up rather than top-down, so the unfamiliar Home Assistant/Python plumbing comes last, once the underlying math is already known-good:
-
-1. The calculation engine, as plain functions with no Home Assistant dependency — write it, hand it numbers worked out by hand, confirm it matches this plan.
-2. The window engine's logic (snapshot/delta, the export-price lock) fed by fake/mock sensor readings — still no real Home Assistant plumbing.
-3. Only then the config flow, subentries, and entities — the part with the most unfamiliar async idioms, tackled once everything underneath it is already tested.
-
 ## Development setup and conventions
 
 Development runs in VS Code against a project virtualenv and in-process tests; no Home Assistant restarts are needed.
@@ -261,11 +251,10 @@ Development runs in VS Code against a project virtualenv and in-process tests; n
 
 ## Working agreement for Claude sessions
 
-The skeleton's `IMPLEMENT ME` bodies in `custom_components/` are the author's practice exercises: guide, explain, and review them, but don't write them unless asked. The tests are Claude's: Claude writes and maintains the whole `tests/` directory, so the author can focus on the integration and check their work immediately.
+Claude implements and maintains the whole project: the integration in `custom_components/` and the tests in `tests/`. The author uses the integration and steers its design.
 
-- Complete as shipped: `const.py`, `__init__.py`, and everything under `tests/`. Everything else in `custom_components/` holds exercises.
-- Tests follow the design: when this doc changes, Claude updates the tests in the same change. New or changed tests are proven against Claude's reference implementation in the gitignored `HA-Dynamic-Cost/.reference/` (a spoiler for the exercises, never copied into the integration): `Integration/.venv/bin/python .reference/verify.py` runs the suite against it and plants a list of matching bugs, each of which must make a test fail. So a red test always points at the integration, not at the test. Claude keeps the reference and its bug list in step with the tests.
-- When the design changes, updating the skeleton's scaffolding to match is fair game for Claude: constants, signatures, stubs and their docstrings, tests, config-flow fields, `strings.json`, and the simulator. The function bodies stay exercises.
+- Code and tests follow the design: when this doc changes, Claude updates the integration and the tests in the same change.
+- Every test must be able to fail. `scripts/mutation_check.py` (run with `.venv/bin/python scripts/mutation_check.py`) plants a list of deliberate bugs in a temporary copy of the project, one at a time, and each must make the suite fail. Claude adds a planted bug for every new behaviour, and updates planting points that report STALE after a code change.
 - The author is new to Python, Home Assistant, and Linux, coming from C, assembly, and Delphi Pascal — explain idioms by contrast with those where it helps.
 - This doc describes the current design, as if it had always been that way. A new idea may start as a numbered addendum while it's evaluated together; once agreed, it's woven into the relevant sections and the addendum is removed before anything is implemented.
 - Before acting on a proposed change, check it against this doc. Point out anything it contradicts or makes obsolete, including the reasoning behind earlier decisions, and settle that first.

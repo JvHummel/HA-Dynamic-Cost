@@ -5,5 +5,3 @@ Integration/custom_components/dynamic_cost/__pycache__/
 
 Integration/.venv/
 
-# Claude's reference implementation, used only to verify the tests. Spoiler!
-.reference/

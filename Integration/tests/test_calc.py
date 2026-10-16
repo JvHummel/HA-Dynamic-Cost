@@ -3,8 +3,7 @@
 These need NO Home Assistant at all and run in milliseconds. Start here:
 make these pass before you write a single line of window.py.
 
-The tests under YOUR TURN were the author's own exercises; the rest pin the
-plan's formulas, including its MAX(0, ...) clamp case.
+They pin the plan's formulas, including its MAX(0, ...) clamp case.
 """
 
 from __future__ import annotations
@@ -91,7 +90,7 @@ def test_night_export_comes_from_battery_not_solar():
 
 
 # ---------------------------------------------------------------------------
-# YOUR TURN
+# More hand-worked windows
 # ---------------------------------------------------------------------------
 
 def test_battery_discharge_covers_house_when_no_solar():
