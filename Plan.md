@@ -206,14 +206,16 @@ A split is only created once the hub has the devices it depends on, since withou
 
 General devices don't feed the splits, so they never add any. Adding or removing a device reloads the hub, so its splits appear and disappear with it. On every setup, hub entities the hub no longer creates are removed from Home Assistant's entity registry. The engine still keeps every split's total in the store, so a split that comes back (the last solar device removed, then a new one added) carries on where it left off.
 
-**Diagnostics** (dynamic tariffs only): hub-level sensors in Home Assistant's diagnostic category, showing what the window engine is doing. They update whenever the window changes, not only at a window close:
+**Diagnostics** (dynamic tariffs only): hub-level sensors in Home Assistant's diagnostic category, showing what the window engine is doing. They update whenever the window changes, including a tentative value changing during the grace period, not only at a window close. They only show the engine's state: a window is always settled at its locked values:
 
 | Sensor | Shows |
 | --- | --- |
 | Window status | `no_window` (first start, waiting for an import price), `open`, `held_open` (a boundary arrived but a lock is missing) or `overdue` (open longer than the stale-window warning time). Held open wins over overdue, because it names the reason |
 | Window import price | The import price the open window values energy at |
-| Window export price | The open window's locked export price; unknown until it locks |
-| Window curtailment | The open window's locked curtailment state; unknown until it locks. Only with a curtailment source |
+| Window export price | The open window's export price: the tentative one until it locks, then the locked one. Unknown only while there's no reading at all |
+| Export price lock | `waiting` (no reading yet), `tentative` (read, may still change until the grace period ends) or `locked` |
+| Window curtailment | The open window's curtailment state, tentative or locked like the export price. Only with a curtailment source |
+| Curtailment lock | `waiting`, `tentative` or `locked`, as for the export price. Only with a curtailment source |
 | Window opened | When the open window opened, shown by Home Assistant as "x minutes ago" |
 | Last window closed | When the last window settled |
 

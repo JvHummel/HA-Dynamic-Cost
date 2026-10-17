@@ -41,8 +41,9 @@ Switching tariff type keeps all records; only the currency is fixed.
   Energy dashboard, and may go negative where the maths says so. Splits that
   need solar or a battery only appear once you've added one.
 - **Diagnostics, for dynamic tariffs** — the window's status, its import
-  and export price, its curtailment state (with a curtailment source), when
-  it opened and when the last one closed. If a window stays open longer than
+  and export price, its curtailment state (with a curtailment source),
+  whether those are still tentative or locked in, when the window opened and
+  when the last one closed. If a window stays open longer than
   the warning time you set (default 120 minutes), a warning is logged:
   usually the price sensor is wrong or stuck.
 - **Per device** — its energy per sensor (*Energy produced*, *Energy

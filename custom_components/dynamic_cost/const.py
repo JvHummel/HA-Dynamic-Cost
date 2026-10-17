@@ -57,6 +57,15 @@ class WindowStatus(StrEnum):
 # end WindowStatus
 
 
+class LockState(StrEnum):
+    """Where a window's export price or curtailment state stands."""
+
+    WAITING = "waiting"      # no reading yet
+    TENTATIVE = "tentative"  # read, but may still change until it locks
+    LOCKED = "locked"        # fixed for this window
+# end LockState
+
+
 class DeviceType(StrEnum):
     """Kind of device tracked under a hub."""
 

@@ -4,14 +4,25 @@ Every release of Dynamic Cost, newest first. Each version's section is
 published as the release notes on GitHub, which HACS shows when it offers
 the update.
 
-## [0.2.1] - Unreleased
+## [0.3.0] - Unreleased
 
 ### Added
+- **Lock sensors for dynamic hubs.** *Export price lock* shows whether the
+  window's export price is still waiting for a reading, tentative (read, but
+  it may still change during the first minute of the window) or locked. With
+  a curtailment source, *Curtailment lock* does the same for the curtailment
+  state.
 - **An icon.** Dynamic Cost now has its own icon: a dynamic price line that
   zigzags like a lightning bolt, ending in the current price. Home Assistant
   2026.3 and later show it on the integration's pages, with a lighter version
   for dark themes. HACS doesn't show it yet; its successor, Marketplace in
   Home Assistant 2026.11, will.
+
+### Changed
+- **The window's export price and curtailment state show straight away.**
+  They used to read *unknown* until they locked; now they show the tentative
+  value meanwhile, and the lock sensors say which it is. What a window is
+  settled at doesn't change: always the locked value.
 
 ## [0.2.0] - 2026-10-17
 

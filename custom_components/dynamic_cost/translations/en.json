@@ -287,6 +287,22 @@
       },
       "last_window_closed": {
         "name": "Last window closed"
+      },
+      "export_price_lock": {
+        "name": "Export price lock",
+        "state": {
+          "waiting": "Waiting for a price",
+          "tentative": "Tentative",
+          "locked": "Locked"
+        }
+      },
+      "curtailment_lock": {
+        "name": "Curtailment lock",
+        "state": {
+          "waiting": "Waiting for a state",
+          "tentative": "Tentative",
+          "locked": "Locked"
+        }
       }
     }
   }

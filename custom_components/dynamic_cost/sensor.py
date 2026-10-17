@@ -43,6 +43,7 @@ from .const import (
     FINANCIAL_SPLIT_KEYS,
     SPLIT_REQUIRES,
     DeviceType,
+    LockState,
     TariffMode,
     WindowStatus,
     unique_id,
@@ -91,10 +92,26 @@ def _curtailed_state(engine: WindowEngine) -> str | None:
 # end _curtailed_state
 
 
+def _lock(
+    key: str, value_fn: Callable[[WindowEngine], LockState | None]
+) -> DiagnosticDescription:
+    return DiagnosticDescription(
+        key=key,
+        translation_key=key,
+        device_class=SensorDeviceClass.ENUM,
+        options=[state.value for state in LockState],
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=value_fn,
+    )
+# end _lock
+
+
 def _diagnostics(currency: str, curtailment: bool) -> list[DiagnosticDescription]:
     """The dynamic-tariff diagnostics (plan: entities, diagnostics).
 
-    The curtailment state only exists when the hub has a curtailment source.
+    The export price and curtailment state show their tentative value until
+    they lock; their lock sensors say which it is. The curtailment pair only
+    exists when the hub has a curtailment source.
     """
     price_per_kwh = f"{currency}/{UnitOfEnergy.KILO_WATT_HOUR}"
     descriptions = [
@@ -122,6 +139,7 @@ def _diagnostics(currency: str, curtailment: bool) -> list[DiagnosticDescription
             entity_category=EntityCategory.DIAGNOSTIC,
             value_fn=lambda engine: engine.window_export_price,
         ),
+        _lock("export_price_lock", lambda engine: engine.export_price_lock),
         DiagnosticDescription(
             key="window_opened",
             translation_key="window_opened",
@@ -147,6 +165,9 @@ def _diagnostics(currency: str, curtailment: bool) -> list[DiagnosticDescription
                 entity_category=EntityCategory.DIAGNOSTIC,
                 value_fn=_curtailed_state,
             )
+        )
+        descriptions.append(
+            _lock("curtailment_lock", lambda engine: engine.curtailment_lock)
         )
     # end if
     return descriptions

@@ -48,6 +48,7 @@ from .const import (
     STORAGE_VERSION,
     WINDOW_SETTINGS_KEYS,
     DeviceType,
+    LockState,
     TariffMode,
     WindowStatus,
     unique_id,
@@ -795,6 +796,7 @@ class WindowEngine:
         Within the grace period this updates the window's tentative price.
         After it, if nothing locked yet, the price locks immediately -- the
         late-arrival path that lets a recovering sensor unblock a window.
+        Either way the diagnostics show the change.
         """
         price = self._read_entity_state(event.data["entity_id"])
         if price is None or not self._window_open:
@@ -804,9 +806,9 @@ class WindowEngine:
         self._window.tentative_export_price = price
         if self._window.grace_elapsed and self._window.locked_export_price is None:
             self._window.locked_export_price = price
-            self._changed()
-            self._close_if_pending()
         # end if
+        self._changed()
+        self._close_if_pending()
     # end _async_export_price_changed
 
     @callback
@@ -824,9 +826,9 @@ class WindowEngine:
         self._window.tentative_curtailed = curtailed
         if self._window.grace_elapsed and self._window.locked_curtailed is None:
             self._window.locked_curtailed = curtailed
-            self._changed()
-            self._close_if_pending()
         # end if
+        self._changed()
+        self._close_if_pending()
     # end _async_curtailment_changed
 
     @callback
@@ -1014,16 +1016,57 @@ class WindowEngine:
 
     @property
     def window_export_price(self) -> float | None:
-        return self._window.locked_export_price
+        """The locked export price, or until it locks, the tentative one."""
+        return self._locked_or_tentative(
+            self._window.locked_export_price, self._window.tentative_export_price
+        )
     # end window_export_price
 
     @property
+    def export_price_lock(self) -> LockState | None:
+        return self._lock_state(
+            self._window.locked_export_price, self._window.tentative_export_price
+        )
+    # end export_price_lock
+
+    @property
     def window_curtailed(self) -> bool | None:
+        """The locked curtailment state, or until it locks, the tentative one."""
+        return self._locked_or_tentative(
+            self._window.locked_curtailed, self._window.tentative_curtailed
+        )
+    # end window_curtailed
+
+    @property
+    def curtailment_lock(self) -> LockState | None:
+        return self._lock_state(
+            self._window.locked_curtailed, self._window.tentative_curtailed
+        )
+    # end curtailment_lock
+
+    def _locked_or_tentative(self, locked: Any, tentative: Any) -> Any:
         if not self._window_open:
             return None
         # end if
-        return self._window.locked_curtailed
-    # end window_curtailed
+        if locked is not None:
+            return locked
+        # end if
+        return None if tentative is UNSET else tentative
+    # end _locked_or_tentative
+
+    def _lock_state(self, locked: Any, tentative: Any) -> LockState | None:
+        """Locked, tentative (read, may still change), or waiting for a reading."""
+        if not self._window_open:
+            return None
+        # end if
+        if locked is not None:
+            return LockState.LOCKED
+        # end if
+        if tentative is UNSET:
+            return LockState.WAITING
+        # end if
+        return LockState.TENTATIVE
+    # end _lock_state
 
     @property
     def window_opened_at(self) -> datetime | None:

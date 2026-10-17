@@ -193,6 +193,22 @@ MUTANTS: dict[str, tuple[str, str, str]] = {
         "                    CONF_STALE_WINDOW_MINUTES,\n",
         "                    CONF_EXPORT_PRICE_SENSOR,\n",
     ),
+    "tentative values hidden until locked": (
+        WINDOW,
+        "        return None if tentative is UNSET else tentative",
+        "        return None",
+    ),
+    "lock state never says tentative": (
+        WINDOW,
+        "        return LockState.TENTATIVE\n    # end _lock_state",
+        "        return LockState.WAITING\n    # end _lock_state",
+    ),
+    "tentative export price changes not shown": (
+        WINDOW,
+        "        self._changed()\n        self._close_if_pending()\n"
+        "    # end _async_export_price_changed",
+        "        self._close_if_pending()\n    # end _async_export_price_changed",
+    ),
     "value counted for solar devices": (
         PKG + "const.py",
         'DeviceType.SOLAR: ("export_energy",)',

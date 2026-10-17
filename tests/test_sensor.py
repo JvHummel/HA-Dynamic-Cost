@@ -27,6 +27,7 @@ from custom_components.dynamic_cost.const import (
     TariffMode,
 )
 
+from .simulator import CURTAILMENT as SIM_CURTAILMENT
 from .simulator import EXPORT_PRICE as SIM_EXPORT_PRICE
 
 SOLAR = "sensor.sim_solar"
@@ -52,7 +53,7 @@ WITH_BATTERY = {
 WITH_BOTH = {"solar_to_battery", "solar_to_battery_cost"}
 DIAGNOSTICS = {
     "window_status", "window_import_price", "window_export_price",
-    "window_opened", "last_window_closed",
+    "export_price_lock", "window_opened", "last_window_closed",
 }
 
 
@@ -163,7 +164,11 @@ async def test_splits_follow_devices_being_added_and_removed(hass, simulator):
         (TariffMode.FIXED, False, set()),
         (TariffMode.FIXED, True, set()),
         (TariffMode.DYNAMIC, False, DIAGNOSTICS),
-        (TariffMode.DYNAMIC, True, DIAGNOSTICS | {"window_curtailed"}),
+        (
+            TariffMode.DYNAMIC,
+            True,
+            DIAGNOSTICS | {"window_curtailed", "curtailment_lock"},
+        ),
     ],
 )
 async def test_diagnostics_only_for_dynamic_hubs(
@@ -215,13 +220,16 @@ async def test_diagnostics_show_the_window(hass, simulator):
     closed = simulator.hub_state("last_window_closed")
     assert closed not in ("unknown", None)
 
-    # A new window: its export price is unknown until it locks.
+    # A new window: its export price shows straight away, tentatively,
+    # and locks when the grace period ends.
     simulator.set_price(import_price=0.40)
     await hass.async_block_till_done()
     assert simulator.hub_state("window_import_price") == "0.4"
-    assert simulator.hub_state("window_export_price") == "unknown"
+    assert simulator.hub_state("window_export_price") == "0.05"
+    assert simulator.hub_state("export_price_lock") == "tentative"
     await simulator.async_wait(PAST_GRACE)
     assert simulator.hub_state("window_export_price") == "0.05"
+    assert simulator.hub_state("export_price_lock") == "locked"
 
     simulator.set_curtailed(True)
     simulator.set_price(import_price=0.50)
@@ -229,6 +237,39 @@ async def test_diagnostics_show_the_window(hass, simulator):
     await simulator.async_wait(PAST_GRACE)
     assert simulator.hub_state("window_curtailed") == "curtailed"
 # end test_diagnostics_show_the_window
+
+
+async def test_lock_sensors_go_from_waiting_to_tentative_to_locked(hass, simulator):
+    """Without readings a window waits; a reading within the grace period
+    shows as tentative, and may still change; the grace period locks it."""
+    await simulator.async_setup_hub(curtailment=True)
+    await simulator.async_wait(PAST_GRACE)
+    simulator.set_unavailable(SIM_EXPORT_PRICE)
+    simulator.set_unavailable(SIM_CURTAILMENT)
+    simulator.set_price(import_price=0.30)           # opens a window, no readings
+    await hass.async_block_till_done()
+    assert simulator.hub_state("export_price_lock") == "waiting"
+    assert simulator.hub_state("window_export_price") == "unknown"
+    assert simulator.hub_state("curtailment_lock") == "waiting"
+    assert simulator.hub_state("window_curtailed") == "unknown"
+
+    simulator.set_price(export_price=0.06)           # within the grace period
+    simulator.set_curtailed(True)
+    await hass.async_block_till_done()
+    assert simulator.hub_state("export_price_lock") == "tentative"
+    assert simulator.hub_state("window_export_price") == "0.06"
+    assert simulator.hub_state("curtailment_lock") == "tentative"
+    assert simulator.hub_state("window_curtailed") == "curtailed"
+
+    simulator.set_price(export_price=0.07)           # the tentative price moves
+    await hass.async_block_till_done()
+    assert simulator.hub_state("window_export_price") == "0.07"
+
+    await simulator.async_wait(PAST_GRACE)
+    assert simulator.hub_state("export_price_lock") == "locked"
+    assert simulator.hub_state("window_export_price") == "0.07"
+    assert simulator.hub_state("curtailment_lock") == "locked"
+# end test_lock_sensors_go_from_waiting_to_tentative_to_locked
 
 
 async def test_status_shows_a_window_held_open(hass, simulator):
