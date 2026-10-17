@@ -49,7 +49,7 @@ class FinancialSplits:
     """The ten derived monetary figures for one window, in the hub currency."""
 
     grid_import_cost: float
-    grid_export_cost: float
+    grid_export_profit: float
     house_energy_usage_cost: float
     solar_to_house_savings: float
     solar_to_battery_cost: float
@@ -146,7 +146,7 @@ def calculate_financial_splits(
 ) -> FinancialSplits:
     """Convert one window's energy splits into monetary figures."""
     grid_import_cost        = energy.grid_import      *  import_price
-    grid_export_cost        = energy.grid_export      * -export_price
+    grid_export_profit      = energy.grid_export      *  export_price
     solar_to_house_savings  = splits.solar_to_house   *  import_price
     grid_to_battery_cost    = splits.grid_to_battery  *  import_price
     battery_to_house_savings= splits.battery_to_house *  import_price
@@ -164,7 +164,7 @@ def calculate_financial_splits(
     return FinancialSplits(
         battery_to_grid_profit   = battery_to_grid_profit,
         battery_to_house_savings = battery_to_house_savings,
-        grid_export_cost         = grid_export_cost,
+        grid_export_profit       = grid_export_profit,
         grid_import_cost         = grid_import_cost,
         grid_to_battery_cost     = grid_to_battery_cost,
         grid_to_house_cost       = grid_to_house_cost,

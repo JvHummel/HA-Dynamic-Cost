@@ -35,7 +35,7 @@ BatteryToGrid    = MAX(0, BatteryDischarge - BatteryToHouse)
 
 // -- financial splits --
 GridImportCost        = GridImport * ImportPrice
-GridExportCost        = GridExport * -ExportPrice       // negative when ExportPrice > 0, i.e. revenue
+GridExportProfit      = GridExport * ExportPrice        // negative only when ExportPrice < 0: exporting cost money
 SolarToHouseSavings   = SolarToHouse * ImportPrice
 GridToBatteryCost     = GridToBattery * ImportPrice
 BatteryToHouseSavings = BatteryToHouse * ImportPrice

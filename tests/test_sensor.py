@@ -40,7 +40,7 @@ PAST_GRACE = EXPORT_PRICE_GRACE_SECONDS + 1
 # SPLIT_REQUIRES, so a wrong constant fails here too.
 ALWAYS = {
     "house_energy_usage", "grid_to_house", "grid_import_cost",
-    "grid_export_cost", "house_energy_usage_cost", "grid_to_house_cost",
+    "grid_export_profit", "house_energy_usage_cost", "grid_to_house_cost",
 }
 WITH_SOLAR = {
     "solar_to_house", "solar_to_grid", "solar_to_house_savings",

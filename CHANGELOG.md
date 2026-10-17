@@ -23,6 +23,16 @@ the update.
   They used to read *unknown* until they locked; now they show the tentative
   value meanwhile, and the lock sensors say which it is. What a window is
   settled at doesn't change: always the locked value.
+- **Grid export cost is now Grid export profit.** Exporting usually earns
+  money, so it now counts up as a profit, like the other profit splits; only
+  exporting at a negative price makes it go down.
+
+### Upgrading
+- *Grid export profit* replaces *Grid export cost* as a new entity, and the
+  old one is removed. Your total so far carries over, with its sign turned
+  around. Point any dashboard card that showed the old entity at the new
+  one; Home Assistant may list leftover statistics for the old one under
+  Developer Tools → Statistics, which you can delete.
 
 ## [0.2.0] - 2026-10-17
 

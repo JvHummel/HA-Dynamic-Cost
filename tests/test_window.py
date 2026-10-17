@@ -482,7 +482,7 @@ async def test_fixed_tariff_windows(hass, simulator):
     assert simulator.get_total("solar_to_grid") == pytest.approx(1.0)
     assert simulator.get_total("solar_to_house_savings") == pytest.approx(0.25)
     assert simulator.get_total("solar_to_grid_profit") == pytest.approx(0.08)
-    assert simulator.get_total("grid_export_cost") == pytest.approx(-0.08)
+    assert simulator.get_total("grid_export_profit") == pytest.approx(0.08)
 
     simulator.advance_meter(SOLAR, 1.0)              # a second window
     await simulator.async_advance_window()

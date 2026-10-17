@@ -218,8 +218,8 @@
       "grid_import_cost": {
         "name": "Grid import cost"
       },
-      "grid_export_cost": {
-        "name": "Grid export cost"
+      "grid_export_profit": {
+        "name": "Grid export profit"
       },
       "house_energy_usage_cost": {
         "name": "House energy usage cost"

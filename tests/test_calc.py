@@ -127,3 +127,22 @@ def test_house_energy_usage_cost_blends_three_streams():
 
     assert money.house_energy_usage_cost == pytest.approx(0.75)
 # end test_house_energy_usage_cost_blends_three_streams
+
+
+@pytest.mark.parametrize(
+    ("export_price", "expected"),
+    [(0.10, 0.20), (0.0, 0.0), (-0.05, -0.10)],
+)
+def test_grid_export_profit_follows_the_export_price(export_price, expected):
+    """Exporting 2 kWh earns money at a positive price, and costs money --
+    a negative profit -- at a negative one."""
+    energy = WindowEnergy(solar=2.0, grid_export=2.0)
+    money = calculate_financial_splits(
+        calculate_energy_splits(energy), energy,
+        import_price=0.25,
+        export_price=export_price,
+        treat_solar_as_free=False,
+    )
+
+    assert money.grid_export_profit == pytest.approx(expected)
+# end test_grid_export_profit_follows_the_export_price

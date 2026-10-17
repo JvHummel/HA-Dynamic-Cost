@@ -486,6 +486,16 @@ class WindowEngine:
             # end if
         # end for
 
+        # 0.3.0 turned the grid export cost into a profit: a new key with the
+        # opposite sign. A store from before carries on where it left off.
+        old_export = unique_id(self._entry_id, "grid_export_cost")
+        if old_export in self._totals:
+            self._totals.setdefault(
+                unique_id(self._entry_id, "grid_export_profit"),
+                -self._totals.pop(old_export),
+            )
+        # end if
+
         for entity_id, snapshot in data.get("snapshots", {}).items():
             if entity_id in self._sensors:
                 self._sensors[entity_id].snapshot = snapshot

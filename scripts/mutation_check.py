@@ -209,6 +209,21 @@ MUTANTS: dict[str, tuple[str, str, str]] = {
         "    # end _async_export_price_changed",
         "        self._close_if_pending()\n    # end _async_export_price_changed",
     ),
+    "grid export profit keeps the old cost's sign": (
+        PKG + "calc.py",
+        "grid_export_profit      = energy.grid_export      *  export_price",
+        "grid_export_profit      = energy.grid_export      * -export_price",
+    ),
+    "old grid export cost dropped on upgrade": (
+        WINDOW,
+        "        if old_export in self._totals:",
+        "        if False:",
+    ),
+    "old grid export cost carried over without flipping": (
+        WINDOW,
+        "                -self._totals.pop(old_export),",
+        "                self._totals.pop(old_export),",
+    ),
     "value counted for solar devices": (
         PKG + "const.py",
         'DeviceType.SOLAR: ("export_energy",)',

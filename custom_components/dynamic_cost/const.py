@@ -132,7 +132,7 @@ ENERGY_SPLIT_KEYS: Final = (
 
 FINANCIAL_SPLIT_KEYS: Final = (
     "grid_import_cost",
-    "grid_export_cost",
+    "grid_export_profit",
     "house_energy_usage_cost",
     "solar_to_house_savings",
     "solar_to_battery_cost",
@@ -159,7 +159,7 @@ SPLIT_REQUIRES: Final[dict[str, frozenset[DeviceType]]] = {
     "battery_to_house": _BATTERY,
     "battery_to_grid": _BATTERY,
     "grid_import_cost": frozenset(),
-    "grid_export_cost": frozenset(),
+    "grid_export_profit": frozenset(),
     "house_energy_usage_cost": frozenset(),
     "solar_to_house_savings": _SOLAR,
     "solar_to_battery_cost": _BOTH,

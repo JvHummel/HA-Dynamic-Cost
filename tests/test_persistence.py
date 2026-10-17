@@ -172,6 +172,24 @@ async def test_store_from_before_window_times_still_loads(
 # end test_store_from_before_window_times_still_loads
 
 
+async def test_grid_export_cost_becomes_a_profit(hass, simulator, hass_storage):
+    """A store from before 0.3.0 has a grid export *cost*: its total carries
+    over to the grid export profit with the opposite sign, and the old entity
+    is gone."""
+    entry = await simulator.async_setup_hub()
+    await simulator.async_stop_hub()
+    totals = hass_storage[f"{DOMAIN}.{entry.entry_id}"]["data"]["totals"]
+    totals.pop(f"{entry.entry_id}_grid_export_profit", None)
+    totals[f"{entry.entry_id}_grid_export_cost"] = -1.25
+
+    await simulator.async_start_hub()
+
+    assert simulator.get_total("grid_export_profit") == pytest.approx(1.25)
+    assert float(simulator.hub_state("grid_export_profit")) == pytest.approx(1.25)
+    assert simulator.entity_id_for("grid_export_cost") is None
+# end test_grid_export_cost_becomes_a_profit
+
+
 async def test_renamed_device_keeps_its_totals(hass, simulator):
     """Row: device renamed. Its subentry id is unchanged, so nothing changes."""
     await _hub_with_one_settled_window(simulator)
