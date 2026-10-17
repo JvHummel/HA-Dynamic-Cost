@@ -46,6 +46,8 @@ from .const import (
     FINANCIAL_SPLIT_KEYS,
     SAVE_DELAY_SECONDS,
     STORAGE_VERSION,
+    SUMMARY_ENERGY_KEYS,
+    SUMMARY_FINANCIAL_KEYS,
     WINDOW_SETTINGS_KEYS,
     DeviceType,
     LockState,
@@ -495,6 +497,7 @@ class WindowEngine:
                 -self._totals.pop(old_export),
             )
         # end if
+        self._backfill_summaries()
 
         for entity_id, snapshot in data.get("snapshots", {}).items():
             if entity_id in self._sensors:
@@ -534,6 +537,53 @@ class WindowEngine:
         )
         return True
     # end _async_restore
+
+    def _backfill_summaries(self) -> None:
+        """Give a store from before 0.3.0 its summaries, from the splits.
+
+        Summaries arrived after the splits had been counting, so they'd start
+        from 0 and never match the splits they sum up. Instead they start
+        from the split totals: exact for the money, and for energy the flows
+        each meter splits into (grid import = grid to house + grid to
+        battery, and so on), which add up to the meter's own total except
+        where a clamp absorbed meter jitter.
+        """
+        def total(key: str) -> float:
+            return self._totals.get(unique_id(self._entry_id, key), 0.0)
+        # end total
+
+        keys = SUMMARY_ENERGY_KEYS + SUMMARY_FINANCIAL_KEYS
+        if any(unique_id(self._entry_id, key) in self._totals for key in keys):
+            return
+        # end if
+
+        derived = {
+            "grid_import_energy": total("grid_to_house") + total("grid_to_battery"),
+            "grid_export_energy": total("solar_to_grid") + total("battery_to_grid"),
+            "solar_production": (
+                total("solar_to_house")
+                + total("solar_to_grid")
+                + total("solar_to_battery")
+            ),
+            "battery_charged": total("grid_to_battery") + total("solar_to_battery"),
+            "battery_discharged": (
+                total("battery_to_house") + total("battery_to_grid")
+            ),
+            "grid_net_cost": total("grid_import_cost") - total("grid_export_profit"),
+            "solar_value": (
+                total("solar_to_house_savings") + total("solar_to_grid_profit")
+            ),
+            "battery_net_savings": (
+                total("battery_to_house_savings")
+                + total("battery_to_grid_profit")
+                - total("grid_to_battery_cost")
+                - total("solar_to_battery_cost")
+            ),
+        }
+        for key, value in derived.items():
+            self._totals[unique_id(self._entry_id, key)] = value
+        # end for
+    # end _backfill_summaries
 
     @callback
     def _schedule_save(self) -> None:
@@ -942,6 +992,10 @@ class WindowEngine:
         # end for
         for key in FINANCIAL_SPLIT_KEYS:
             self._add(unique_id(self._entry_id, key), getattr(money, key))
+        # end for
+        summaries = calc.calculate_summaries(energy, money)
+        for key in SUMMARY_ENERGY_KEYS + SUMMARY_FINANCIAL_KEYS:
+            self._add(unique_id(self._entry_id, key), getattr(summaries, key))
         # end for
 
         # Device counters: energy per sensor for every device, value only for

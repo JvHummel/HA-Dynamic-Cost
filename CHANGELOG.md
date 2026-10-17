@@ -7,6 +7,13 @@ the update.
 ## [0.3.0] - Unreleased
 
 ### Added
+- **Summaries.** Per source, what moved and what it cost or earned in all,
+  without adding up splits in templates: *Grid import*, *Grid export* and
+  *Grid net cost*; with solar, *Solar production* and *Solar value*; with a
+  battery, *Battery charged*, *Battery discharged* and *Battery net savings*
+  (what the battery earned, minus what charging it cost). On a hub that was
+  already counting, they start from its split totals, so they match the
+  splits from the beginning.
 - **Lock sensors for dynamic hubs.** *Export price lock* shows whether the
   window's export price is still waiting for a reading, tentative (read, but
   it may still change during the first minute of the window) or locked. With

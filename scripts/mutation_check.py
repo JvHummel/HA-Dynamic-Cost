@@ -164,7 +164,7 @@ MUTANTS: dict[str, tuple[str, str, str]] = {
     ),
     "splits created without their devices": (
         SENSOR,
-        "return SPLIT_REQUIRES[key] <= device_types",
+        "return TOTAL_REQUIRES[key] <= device_types",
         "return True",
     ),
     "hub entities that no longer apply are kept": (
@@ -223,6 +223,28 @@ MUTANTS: dict[str, tuple[str, str, str]] = {
         WINDOW,
         "                -self._totals.pop(old_export),",
         "                self._totals.pop(old_export),",
+    ),
+    "battery net savings ignores the solar it stored": (
+        PKG + "calc.py",
+        "                           money.grid_to_battery_cost -\n"
+        "                           money.solar_to_battery_cost)",
+        "                           money.grid_to_battery_cost)",
+    ),
+    "summaries never counted": (
+        WINDOW,
+        "        for key in SUMMARY_ENERGY_KEYS + SUMMARY_FINANCIAL_KEYS:\n"
+        "            self._add(",
+        "        for key in ():\n            self._add(",
+    ),
+    "summaries not worked out for an older store": (
+        WINDOW,
+        "        self._backfill_summaries()\n",
+        "",
+    ),
+    "counted summaries replaced by the splits' version": (
+        WINDOW,
+        "        if any(unique_id(self._entry_id, key) in self._totals for key in keys):",
+        "        if False:",
     ),
     "value counted for solar devices": (
         PKG + "const.py",

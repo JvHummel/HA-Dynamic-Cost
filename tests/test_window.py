@@ -228,6 +228,16 @@ async def test_solar_and_battery_devices_aggregate(hass, simulator):
     battery = "Battery 1"
     assert simulator.get_total("import_energy", device=battery) == pytest.approx(0.5)
     assert simulator.get_total("export_energy", device=battery) == pytest.approx(0.0)
+
+    # Summaries: across every device; solar earned 2 kWh at 0.30, and the
+    # battery paid 0.10 for the solar it stored.
+    assert simulator.get_total("solar_production") == pytest.approx(3.0)
+    assert simulator.get_total("battery_charged") == pytest.approx(1.0)
+    assert simulator.get_total("battery_discharged") == pytest.approx(0.0)
+    assert simulator.get_total("grid_import_energy") == pytest.approx(0.0)
+    assert simulator.get_total("solar_value") == pytest.approx(0.60)
+    assert simulator.get_total("battery_net_savings") == pytest.approx(-0.10)
+    assert simulator.get_total("grid_net_cost") == pytest.approx(0.0)
 # end test_solar_and_battery_devices_aggregate
 
 

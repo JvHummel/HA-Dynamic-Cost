@@ -15,6 +15,7 @@ from custom_components.dynamic_cost.calc import (
     calculate_energy_splits,
     calculate_financial_splits,
     calculate_solar_to_battery_cost,
+    calculate_summaries,
 )
 
 
@@ -146,3 +147,33 @@ def test_grid_export_profit_follows_the_export_price(export_price, expected):
 
     assert money.grid_export_profit == pytest.approx(expected)
 # end test_grid_export_profit_follows_the_export_price
+
+
+def test_summaries_add_up_per_source():
+    """Solar 4, import 1, export 1, charge 2, discharge 0.5 at 0.30/0.10.
+
+    The splits work out to: solar 2 to the house, 1 to the battery, 1 to
+    the grid; the grid's 1 kWh all to the battery; the battery 0.5 to the
+    house. So the battery earned 0.15 in the house but paid 0.30 for grid
+    energy and 0.10 for the solar it stored.
+    """
+    energy = WindowEnergy(solar=4.0, grid_import=1.0, grid_export=1.0,
+                          battery_charge=2.0, battery_discharge=0.5)
+    money = calculate_financial_splits(
+        calculate_energy_splits(energy), energy,
+        import_price=0.30,
+        export_price=0.10,
+        treat_solar_as_free=False,
+    )
+
+    summaries = calculate_summaries(energy, money)
+
+    assert summaries.grid_import_energy  == pytest.approx(1.0)
+    assert summaries.grid_export_energy  == pytest.approx(1.0)
+    assert summaries.solar_production    == pytest.approx(4.0)
+    assert summaries.battery_charged     == pytest.approx(2.0)
+    assert summaries.battery_discharged  == pytest.approx(0.5)
+    assert summaries.grid_net_cost       == pytest.approx(0.30 - 0.10)
+    assert summaries.solar_value         == pytest.approx(0.60 + 0.10)
+    assert summaries.battery_net_savings == pytest.approx(0.15 - 0.30 - 0.10)
+# end test_summaries_add_up_per_source

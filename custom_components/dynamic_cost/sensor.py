@@ -1,8 +1,8 @@
 """Sensor platform for Dynamic Cost.
 
 Three families of entity live here:
-  * hub-level split sensors (up to 8 energy + 10 financial), each created
-    only once the hub has the devices it needs
+  * hub-level totals: up to 8 energy and 10 financial splits, and up to 8
+    summaries, each created only once the hub has the devices it needs
   * per-device counters (energy per sensor; value for general devices)
   * hub-level diagnostic sensors showing the window engine's state, for
     dynamic-tariff hubs only
@@ -41,7 +41,9 @@ from .const import (
     DOMAIN,
     ENERGY_SPLIT_KEYS,
     FINANCIAL_SPLIT_KEYS,
-    SPLIT_REQUIRES,
+    SUMMARY_ENERGY_KEYS,
+    SUMMARY_FINANCIAL_KEYS,
+    TOTAL_REQUIRES,
     DeviceType,
     LockState,
     TariffMode,
@@ -181,8 +183,8 @@ async def async_setup_entry(
 ) -> None:
     """Create all entities for this hub and its device subentries.
 
-    A split is created only when the hub has every device type it needs
-    (const.SPLIT_REQUIRES); without them it could only ever read 0. The hub
+    A split or summary is created only when the hub has every device type
+    it needs (const.TOTAL_REQUIRES); without them it could only ever read 0. The hub
     reloads whenever a device is added or removed, so the splits follow.
     Hub entities that no longer apply are removed from the entity registry;
     their totals stay in the store, so a split that comes back carries on.
@@ -197,16 +199,16 @@ async def async_setup_entry(
     }
 
     def applies(key: str) -> bool:
-        return SPLIT_REQUIRES[key] <= device_types
+        return TOTAL_REQUIRES[key] <= device_types
     # end applies
 
     hub_entities: list[SensorEntity] = [
         DynamicCostSplitSensor(entry, _energy(key, key))
-        for key in ENERGY_SPLIT_KEYS
+        for key in ENERGY_SPLIT_KEYS + SUMMARY_ENERGY_KEYS
         if applies(key)
     ] + [
         DynamicCostSplitSensor(entry, _monetary(key, key, currency))
-        for key in FINANCIAL_SPLIT_KEYS
+        for key in FINANCIAL_SPLIT_KEYS + SUMMARY_FINANCIAL_KEYS
         if applies(key)
     ]
     if entry.data[CONF_TARIFF_MODE] == TariffMode.DYNAMIC:

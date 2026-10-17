@@ -175,6 +175,52 @@ def calculate_financial_splits(
     )
 # end calculate_financial_splits
 
+
+@dataclass(frozen=True, slots=True)
+class Summaries:
+    """Hub-wide totals for one window: per source, what moved and what it
+    cost or earned in all (plan: entities, summaries)."""
+
+    grid_import_energy: float
+    grid_export_energy: float
+    solar_production: float
+    battery_charged: float
+    battery_discharged: float
+    grid_net_cost: float
+    solar_value: float
+    battery_net_savings: float
+# end Summaries
+
+
+def calculate_summaries(energy: WindowEnergy, money: FinancialSplits) -> Summaries:
+    """Sum one window up per source.
+
+    The energy figures are the meters' own: grid import and export straight
+    from the grid sensors, solar and battery from their devices. Solar's
+    value is what it earned directly; solar stored in the battery is the
+    battery's to earn back, so the battery's savings pay for it at the
+    export price it could have fetched.
+    """
+    grid_net_cost       = money.grid_import_cost - money.grid_export_profit
+    solar_value         = (money.solar_to_house_savings +
+                           money.solar_to_grid_profit)
+    battery_net_savings = (money.battery_to_house_savings +
+                           money.battery_to_grid_profit -
+                           money.grid_to_battery_cost -
+                           money.solar_to_battery_cost)
+
+    return Summaries(
+        grid_import_energy  = energy.grid_import,
+        grid_export_energy  = energy.grid_export,
+        solar_production    = energy.solar,
+        battery_charged     = energy.battery_charge,
+        battery_discharged  = energy.battery_discharge,
+        grid_net_cost       = grid_net_cost,
+        solar_value         = solar_value,
+        battery_net_savings = battery_net_savings,
+    )
+# end calculate_summaries
+
 def calculate_device_value(
     energy_delta: float,
     price: float,

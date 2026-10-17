@@ -48,7 +48,18 @@ SolarToBatteryCost:
     return SolarToBattery * ExportPrice
 
 HouseEnergyUsageCost = GridToHouseCost + SolarToHouseSavings + BatteryToHouseSavings
+
+// -- summaries: per source, what moved and what it cost or earned in all --
+GridImportEnergy  = GridImport            GridExportEnergy  = GridExport
+SolarProduction   = Solar
+BatteryCharged    = BatteryCharge         BatteryDischarged = BatteryDischarge
+GridNetCost       = GridImportCost - GridExportProfit
+SolarValue        = SolarToHouseSavings + SolarToGridProfit
+BatteryNetSavings = BatteryToHouseSavings + BatteryToGridProfit
+                    - GridToBatteryCost - SolarToBatteryCost
 ```
+
+Solar's value is what it earned directly. Solar stored in the battery is the battery's to earn back, so the battery's net savings pay for it, at the export price it could have fetched (zero when solar counts as free).
 
 `SolarToBatteryCost` is an opportunity cost: solar stored in the battery could have been exported instead, so it is valued at the export price. It is deliberately not clamped, so a negative export price gives a negative cost, because storing that energy avoided paying to export it. It is zero when solar counts as free. There are two ways that can happen:
 
@@ -187,6 +198,7 @@ The configuration can change while the hub is stopped, through an edit, or while
 | Device added | No stored data: its counters start at 0 and its first reading sets the baseline |
 | Device removed | Its stored totals and snapshots are dropped |
 | Device or grid sensor switched to another sensor | The new sensor has no snapshot, so its first reading sets a fresh baseline and contributes 0. The device keeps its totals |
+| Store from before the summaries existed | Summaries are worked out once from the split totals: exactly for money, and for energy from the flows each meter splits into. A store that has any summary keeps what was counted |
 | Window-shaping hub settings changed (including tariff type) | The stored window is discarded and the first-window rules apply. Snapshots of unchanged sensors are kept, so no energy is lost: it lands in the new first window, just as downtime energy does after a restart. All totals are kept |
 
 A restored window keeps the time it opened, so a restart doesn't reset its stale-window countdown. A store from before that time was saved counts the window's age from the restart. A restored window's grace period counts as over, since its timer didn't survive the restart. Any tentative export price or curtailment state it holds locks immediately, and if a close was pending and both are now locked, the window closes. Anything still missing waits for a late arrival, exactly as after a normal grace period.
@@ -203,6 +215,16 @@ A split is only created once the hub has the devices it depends on, since withou
 | A solar device | Solar to house, solar to grid, and their savings and profit |
 | A battery device | Grid to battery, battery to house, battery to grid, and their cost, savings and profit |
 | Both | Solar to battery and its cost |
+
+**Summaries** sit beside the splits on the hub: what each source moved and what it cost or earned in all, so nobody has to add splits up in a template. They are cumulative totals like the splits, and follow the same rule:
+
+| Needs | Summaries |
+| --- | --- |
+| Nothing | Grid import, grid export (kWh, straight from the grid sensors), grid net cost |
+| A solar device | Solar production (all solar devices), solar value |
+| A battery device | Battery charged, battery discharged (all battery devices), battery net savings |
+
+Their names make the entity ids read `sensor.<hub>_grid_import`, `sensor.<hub>_grid_net_cost` and so on, so dashboards can refer to them predictably.
 
 General devices don't feed the splits, so they never add any. Adding or removing a device reloads the hub, so its splits appear and disappear with it. On every setup, hub entities the hub no longer creates are removed from Home Assistant's entity registry. The engine still keeps every split's total in the store, so a split that comes back (the last solar device removed, then a new one added) carries on where it left off.
 

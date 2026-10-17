@@ -40,6 +40,10 @@ Switching tariff type keeps all records; only the currency is fixed.
   cumulative `total` sensors, so they work with long-term statistics and the
   Energy dashboard, and may go negative where the maths says so. Splits that
   need solar or a battery only appear once you've added one.
+- **Summaries per hub** — per source, what it moved and what it cost or
+  earned in all: *Grid import*, *Grid export* and *Grid net cost*; *Solar
+  production* and *Solar value*; *Battery charged*, *Battery discharged* and
+  *Battery net savings*.
 - **Diagnostics, for dynamic tariffs** — the window's status, its import
   and export price, its curtailment state (with a curtailment source),
   whether those are still tentative or locked in, when the window opened and

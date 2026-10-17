@@ -303,6 +303,30 @@
           "tentative": "Tentative",
           "locked": "Locked"
         }
+      },
+      "grid_import_energy": {
+        "name": "Grid import"
+      },
+      "grid_export_energy": {
+        "name": "Grid export"
+      },
+      "solar_production": {
+        "name": "Solar production"
+      },
+      "battery_charged": {
+        "name": "Battery charged"
+      },
+      "battery_discharged": {
+        "name": "Battery discharged"
+      },
+      "grid_net_cost": {
+        "name": "Grid net cost"
+      },
+      "solar_value": {
+        "name": "Solar value"
+      },
+      "battery_net_savings": {
+        "name": "Battery net savings"
       }
     }
   }

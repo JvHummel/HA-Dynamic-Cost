@@ -23,6 +23,8 @@ from custom_components.dynamic_cost.const import (
     ENERGY_SPLIT_KEYS,
     EXPORT_PRICE_GRACE_SECONDS,
     FINANCIAL_SPLIT_KEYS,
+    SUMMARY_ENERGY_KEYS,
+    SUMMARY_FINANCIAL_KEYS,
     DeviceType,
     TariffMode,
 )
@@ -41,14 +43,16 @@ PAST_GRACE = EXPORT_PRICE_GRACE_SECONDS + 1
 ALWAYS = {
     "house_energy_usage", "grid_to_house", "grid_import_cost",
     "grid_export_profit", "house_energy_usage_cost", "grid_to_house_cost",
+    "grid_import_energy", "grid_export_energy", "grid_net_cost",
 }
 WITH_SOLAR = {
     "solar_to_house", "solar_to_grid", "solar_to_house_savings",
-    "solar_to_grid_profit",
+    "solar_to_grid_profit", "solar_production", "solar_value",
 }
 WITH_BATTERY = {
     "grid_to_battery", "battery_to_house", "battery_to_grid",
     "grid_to_battery_cost", "battery_to_house_savings", "battery_to_grid_profit",
+    "battery_charged", "battery_discharged", "battery_net_savings",
 }
 WITH_BOTH = {"solar_to_battery", "solar_to_battery_cost"}
 DIAGNOSTICS = {
@@ -90,21 +94,42 @@ def _hub_keys(hass, entry) -> set[str]:
 
 
 async def test_hub_split_sensors(hass, simulator):
-    """With solar and a battery, all 18 splits exist, start at 0, and carry
-    the plan's classes."""
+    """With solar and a battery, all 18 splits and 8 summaries exist, start
+    at 0, and carry the plan's classes."""
     await simulator.async_setup_hub(
         solar=[SOLAR], batteries=[(CHARGE, DISCHARGE)], currency="USD"
     )
 
-    for key in ENERGY_SPLIT_KEYS:
+    for key in ENERGY_SPLIT_KEYS + SUMMARY_ENERGY_KEYS:
         attrs = _attributes(hass, simulator.entity_id_for(key), key)
         assert attrs == ENERGY | {"value": 0.0}, key
     # end for
-    for key in FINANCIAL_SPLIT_KEYS:
+    for key in FINANCIAL_SPLIT_KEYS + SUMMARY_FINANCIAL_KEYS:
         attrs = _attributes(hass, simulator.entity_id_for(key), key)
         assert attrs == _monetary("USD") | {"value": 0.0}, key
     # end for
 # end test_hub_split_sensors
+
+
+async def test_summary_entity_ids(hass, simulator):
+    """The summaries' names give the entity ids dashboards refer to:
+    <hub>_grid_import, <hub>_grid_net_cost and so on."""
+    await simulator.async_setup_hub(solar=[SOLAR], batteries=[(CHARGE, DISCHARGE)])
+
+    expected = {
+        "grid_import_energy": "grid_import",
+        "grid_export_energy": "grid_export",
+        "solar_production": "solar_production",
+        "battery_charged": "battery_charged",
+        "battery_discharged": "battery_discharged",
+        "grid_net_cost": "grid_net_cost",
+        "solar_value": "solar_value",
+        "battery_net_savings": "battery_net_savings",
+    }
+    for key, name in expected.items():
+        assert simulator.entity_id_for(key) == f"sensor.simulated_hub_{name}", key
+    # end for
+# end test_summary_entity_ids
 
 
 @pytest.mark.parametrize(

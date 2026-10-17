@@ -143,13 +143,29 @@ FINANCIAL_SPLIT_KEYS: Final = (
     "battery_to_grid_profit",
 )
 
+# Hub-wide summaries: per-source totals, and what each source cost or earned
+# in all (plan: entities, summaries).
+SUMMARY_ENERGY_KEYS: Final = (
+    "grid_import_energy",
+    "grid_export_energy",
+    "solar_production",
+    "battery_charged",
+    "battery_discharged",
+)
 
-# Which device types a hub needs before a split can be anything but 0. A
-# split is only created once the hub has them (plan: entities).
+SUMMARY_FINANCIAL_KEYS: Final = (
+    "grid_net_cost",
+    "solar_value",
+    "battery_net_savings",
+)
+
+
+# Which device types a hub needs before a split or summary can be anything
+# but 0. Its entity is only created once the hub has them (plan: entities).
 _SOLAR = frozenset({DeviceType.SOLAR})
 _BATTERY = frozenset({DeviceType.BATTERY})
 _BOTH = _SOLAR | _BATTERY
-SPLIT_REQUIRES: Final[dict[str, frozenset[DeviceType]]] = {
+TOTAL_REQUIRES: Final[dict[str, frozenset[DeviceType]]] = {
     "house_energy_usage": frozenset(),
     "solar_to_house": _SOLAR,
     "solar_to_battery": _BOTH,
@@ -168,6 +184,14 @@ SPLIT_REQUIRES: Final[dict[str, frozenset[DeviceType]]] = {
     "grid_to_house_cost": frozenset(),
     "battery_to_house_savings": _BATTERY,
     "battery_to_grid_profit": _BATTERY,
+    "grid_import_energy": frozenset(),
+    "grid_export_energy": frozenset(),
+    "solar_production": _SOLAR,
+    "battery_charged": _BATTERY,
+    "battery_discharged": _BATTERY,
+    "grid_net_cost": frozenset(),
+    "solar_value": _SOLAR,
+    "battery_net_savings": _BATTERY,
 }
 
 

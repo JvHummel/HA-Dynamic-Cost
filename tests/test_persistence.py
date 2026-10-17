@@ -22,6 +22,8 @@ from custom_components.dynamic_cost.const import (
     CONF_WINDOW_MINUTES,
     DOMAIN,
     EXPORT_PRICE_GRACE_SECONDS,
+    SUMMARY_ENERGY_KEYS,
+    SUMMARY_FINANCIAL_KEYS,
     DeviceType,
     TariffMode,
 )
@@ -31,6 +33,7 @@ from .simulator import GRID_EXPORT
 from .simulator import IMPORT_PRICE as SIM_IMPORT_PRICE
 
 SOLAR = "sensor.sim_solar"
+SUMMARIES = (*SUMMARY_ENERGY_KEYS, *SUMMARY_FINANCIAL_KEYS)
 SOLAR_2 = "sensor.sim_solar_2"
 SOLAR_NEW = "sensor.sim_solar_new"
 PAST_GRACE = EXPORT_PRICE_GRACE_SECONDS + 1
@@ -188,6 +191,48 @@ async def test_grid_export_cost_becomes_a_profit(hass, simulator, hass_storage):
     assert float(simulator.hub_state("grid_export_profit")) == pytest.approx(1.25)
     assert simulator.entity_id_for("grid_export_cost") is None
 # end test_grid_export_cost_becomes_a_profit
+
+
+async def test_summaries_start_from_the_splits(hass, simulator, hass_storage):
+    """A store from before the summaries existed gets them worked out from
+    its split totals, so they match the splits from the start."""
+    await simulator.async_setup_hub(
+        solar=[SOLAR], batteries=[("sensor.sim_charge", "sensor.sim_discharge")]
+    )
+    await simulator.async_advance_window(import_price=0.30, export_price=0.10)
+    simulator.advance_meter(SOLAR, 3.0)
+    simulator.advance_meter("sensor.sim_charge", 1.0)
+    simulator.advance_meter(GRID_EXPORT, 0.5)
+    await simulator.async_advance_window()
+    counted = {key: simulator.get_total(key) for key in SUMMARIES}
+    assert counted["solar_production"] == pytest.approx(3.0)
+
+    await simulator.async_stop_hub()
+    totals = hass_storage[f"{DOMAIN}.{simulator.entry.entry_id}"]["data"]["totals"]
+    for key in SUMMARIES:
+        del totals[f"{simulator.entry.entry_id}_{key}"]
+    # end for
+    await simulator.async_start_hub()
+
+    for key in SUMMARIES:
+        assert simulator.get_total(key) == pytest.approx(counted[key]), key
+    # end for
+# end test_summaries_start_from_the_splits
+
+
+async def test_counted_summaries_are_kept(hass, simulator, hass_storage):
+    """Only a store without any summaries gets them worked out: summaries
+    the engine has counted are never replaced by the splits' version."""
+    entry = await simulator.async_setup_hub(solar=[SOLAR])
+    await simulator.async_advance_window()
+    await simulator.async_stop_hub()
+    totals = hass_storage[f"{DOMAIN}.{entry.entry_id}"]["data"]["totals"]
+    totals[f"{entry.entry_id}_solar_production"] = 99.0
+
+    await simulator.async_start_hub()
+
+    assert simulator.get_total("solar_production") == pytest.approx(99.0)
+# end test_counted_summaries_are_kept
 
 
 async def test_renamed_device_keeps_its_totals(hass, simulator):
