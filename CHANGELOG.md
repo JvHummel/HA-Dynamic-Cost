@@ -4,6 +4,15 @@ Every release of Dynamic Cost, newest first. Each version's section is
 published as the release notes on GitHub, which HACS shows when it offers
 the update.
 
+## [0.2.1] - Unreleased
+
+### Added
+- **An icon.** Dynamic Cost now has its own icon: a dynamic price line that
+  zigzags like a lightning bolt, ending in the current price. Home Assistant
+  2026.3 and later show it on the integration's pages, with a lighter version
+  for dark themes. HACS doesn't show it yet; its successor, Marketplace in
+  Home Assistant 2026.11, will.
+
 ## [0.2.0] - 2026-10-17
 
 ### Added

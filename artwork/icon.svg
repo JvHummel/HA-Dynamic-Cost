@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="3.5 1.5 92.5 92.5">
+  <!-- Dynamic Cost icon, for light backgrounds: a dynamic price line that
+       zigzags like a bolt, ending in the current price. -->
+  <path d="M10 64 H28 L40 38 L54 62 L66 36 H72" fill="none" stroke="#2D1660"
+        stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="85" cy="36" r="9" fill="#2D1660"/>
+</svg>

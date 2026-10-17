@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="3.5 1.5 92.5 92.5">
+  <!-- Dynamic Cost icon, for dark backgrounds: lavender line, amber price. -->
+  <path d="M10 64 H28 L40 38 L54 62 L66 36 H72" fill="none" stroke="#C8B9FF"
+        stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="85" cy="36" r="9" fill="#F5B942"/>
+</svg>

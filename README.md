@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="artwork/dark_icon.svg">
+  <img src="artwork/icon.svg" alt="" width="96">
+</picture>
+
 # Dynamic Cost
 
 [![CI](https://github.com/JvHummel/HA-Dynamic-Cost/actions/workflows/ci.yml/badge.svg)](https://github.com/JvHummel/HA-Dynamic-Cost/actions/workflows/ci.yml)
@@ -54,6 +59,7 @@ guessed; see the Resilience section of the plan.
       calc.py         the energy and financial splits; no Home Assistant
       window.py       tracking windows, snapshots, price locks, persistence
       sensor.py       the entities
+      brand/          the icon Home Assistant shows (2026.3+)
       config_flow.py  setup wizard, reconfiguration, device flows
       __init__.py     entry setup/unload wiring
     tests/
@@ -65,6 +71,8 @@ guessed; see the Resilience section of the plan.
       test_persistence.py  restarts and configuration changes
     scripts/
       mutation_check.py    proves the tests can catch real bugs
+      render_brand.py      turns artwork/*.svg into the icons in brand/
+    artwork/               the icon's source drawings
 
 ## Development
 
