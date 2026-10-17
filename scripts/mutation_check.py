@@ -23,6 +23,7 @@ PYTHON = PROJECT / ".venv" / "bin" / "python"
 PKG = "custom_components/dynamic_cost/"
 WINDOW = PKG + "window.py"
 FLOW = PKG + "config_flow.py"
+SENSOR = PKG + "sensor.py"
 
 # name: (file, exact original text, replacement)
 MUTANTS: dict[str, tuple[str, str, str]] = {
@@ -44,6 +45,7 @@ MUTANTS: dict[str, tuple[str, str, str]] = {
     "restored grace not treated as over": (
         WINDOW,
         "        if restored:\n            self._window.grace_elapsed = True\n"
+        "            self._start_overdue_timer(self._window.opened_at)\n"
         "            self._lock_tentative_values()\n"
         "            self._close_if_pending()\n            return",
         "        if restored:\n            return",
@@ -110,9 +112,86 @@ MUTANTS: dict[str, tuple[str, str, str]] = {
         '            errors[field] = "unknown_entity"',
     ),
     "entities not refreshed when a window settles": (
-        PKG + "sensor.py",
+        SENSOR,
         "        self.async_on_remove(self._engine.async_add_listener(self.async_write_ha_state))",
         "        pass",
+    ),
+    "stale-window countdown never started for a window": (
+        WINDOW,
+        "        )\n        self._start_overdue_timer(self._window.opened_at)\n\n"
+        "        if self._fixed:",
+        "        )\n\n        if self._fixed:",
+    ),
+    "no warning while waiting for the first window": (
+        WINDOW,
+        "                self._start_overdue_timer(dt_util.utcnow())",
+        "                pass",
+    ),
+    "previous window's countdown keeps running": (
+        WINDOW,
+        "        if self._cancel_overdue is not None:\n"
+        "            self._cancel_overdue()\n"
+        "            self._cancel_overdue = None\n"
+        "        # end if\n"
+        "        self._overdue = False",
+        "        self._overdue = False",
+    ),
+    "stale timeout ignores the hub setting": (
+        WINDOW,
+        "return self._config.get(CONF_STALE_WINDOW_MINUTES, DEFAULT_STALE_WINDOW_MINUTES)",
+        "return DEFAULT_STALE_WINDOW_MINUTES",
+    ),
+    "fixed windows get the stale warning": (
+        WINDOW,
+        "        if self._fixed:\n            return\n        # end if\n\n"
+        "        self._cancel_overdue = ",
+        "        self._cancel_overdue = ",
+    ),
+    "restart resets a window's age": (
+        WINDOW,
+        "opened_at=opened_at or dt_util.utcnow(),",
+        "opened_at=dt_util.utcnow(),",
+    ),
+    "held-open window shown as merely overdue": (
+        WINDOW,
+        "        if self._window.close_pending:\n            return WindowStatus.HELD_OPEN",
+        "        if False:\n            return WindowStatus.HELD_OPEN",
+    ),
+    "entities not refreshed on a lock": (
+        WINDOW,
+        "        self._schedule_save()\n        self._notify()\n    # end _changed",
+        "        self._schedule_save()\n    # end _changed",
+    ),
+    "splits created without their devices": (
+        SENSOR,
+        "return SPLIT_REQUIRES[key] <= device_types",
+        "return True",
+    ),
+    "hub entities that no longer apply are kept": (
+        SENSOR,
+        "            registry.async_remove(registered.entity_id)",
+        "            pass",
+    ),
+    "diagnostics on fixed hubs too": (
+        SENSOR,
+        "    if entry.data[CONF_TARIFF_MODE] == TariffMode.DYNAMIC:",
+        "    if True:",
+    ),
+    "curtailment diagnostic without a source": (
+        SENSOR,
+        "_diagnostics(currency, engine.tracks_curtailment)",
+        "_diagnostics(currency, True)",
+    ),
+    "timeout field validated as a sensor": (
+        FLOW,
+        "                    if field in HUB_SENSOR_FIELDS",
+        "                    if True",
+    ),
+    "timeout kept after switching to fixed": (
+        FLOW,
+        "                    CONF_EXPORT_PRICE_SENSOR,\n"
+        "                    CONF_STALE_WINDOW_MINUTES,\n",
+        "                    CONF_EXPORT_PRICE_SENSOR,\n",
     ),
     "value counted for solar devices": (
         PKG + "const.py",

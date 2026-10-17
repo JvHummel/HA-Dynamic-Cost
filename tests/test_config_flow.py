@@ -27,9 +27,11 @@ from custom_components.dynamic_cost.const import (
     CONF_IMPORT_PRICE_SENSOR,
     CONF_IMPORT_SENSOR,
     CONF_IMPORT_TARIFF,
+    CONF_STALE_WINDOW_MINUTES,
     CONF_TARIFF_MODE,
     CONF_TREAT_SOLAR_AS_FREE,
     CONF_WINDOW_MINUTES,
+    DEFAULT_STALE_WINDOW_MINUTES,
     DOMAIN,
     DeviceType,
 )
@@ -152,11 +154,36 @@ async def test_dynamic_setup_creates_hub(hass, no_setup):
         **GRID,
         CONF_TARIFF_MODE: "dynamic",
         **PRICES,
+        CONF_STALE_WINDOW_MINUTES: DEFAULT_STALE_WINDOW_MINUTES,
         CONF_TREAT_SOLAR_AS_FREE: False,
         CONF_CURRENCY: "USD",
         CONF_CURTAILMENT_SOURCE: SWITCH,
     }
 # end test_dynamic_setup_creates_hub
+
+
+async def test_stale_window_timeout_is_saved_and_prefilled(hass, no_setup):
+    """Step 2b's timeout defaults to 120 minutes, and a chosen one is saved.
+
+    Reconfiguring a hub from before the setting existed offers the default.
+    """
+    result = await _submit(hass, await _start(hass), GRID)
+    result = await _submit(hass, result, {CONF_TARIFF_MODE: "dynamic"})
+    assert _prefill(result, CONF_STALE_WINDOW_MINUTES) == 120
+    result = await _submit(hass, result, {**PRICES, CONF_STALE_WINDOW_MINUTES: 45})
+    result = await _submit(
+        hass, result, {CONF_TREAT_SOLAR_AS_FREE: True, CONF_CURRENCY: "USD"}
+    )
+    assert result["data"][CONF_STALE_WINDOW_MINUTES] == 45
+
+    entry = MockConfigEntry(domain=DOMAIN, title="Hub", data=DYNAMIC_HUB)
+    entry.add_to_hass(hass)
+    result = await entry.start_reconfigure_flow(hass)
+    result = await _submit(hass, result, GRID)
+    result = await _submit(hass, result, {CONF_TARIFF_MODE: "dynamic"})
+    _assert_step(result, "dynamic")
+    assert _prefill(result, CONF_STALE_WINDOW_MINUTES) == 120
+# end test_stale_window_timeout_is_saved_and_prefilled
 
 
 async def test_fixed_setup_with_free_solar_skips_curtailment(hass, no_setup):
@@ -274,7 +301,11 @@ async def test_unavailable_price_sensor_asks_for_confirmation(hass, no_setup):
 
 async def test_reconfigure_switches_tariff_type_and_keeps_currency(hass, no_setup):
     """Every setting can change -- including the tariff type -- except currency."""
-    entry = MockConfigEntry(domain=DOMAIN, title="Hub", data=DYNAMIC_HUB)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Hub",
+        data={**DYNAMIC_HUB, CONF_STALE_WINDOW_MINUTES: 60},
+    )
     entry.add_to_hass(hass)
 
     result = await entry.start_reconfigure_flow(hass)
@@ -303,6 +334,14 @@ async def test_reconfigure_switches_tariff_type_and_keeps_currency(hass, no_setu
     assert entry.data[CONF_EXPORT_TARIFF] == 0.07
     assert entry.data[CONF_WINDOW_MINUTES] == 30
     assert entry.data[CONF_CURRENCY] == "EUR"
+    # The dynamic-only settings are gone, not left behind.
+    for key in (
+        CONF_IMPORT_PRICE_SENSOR,
+        CONF_EXPORT_PRICE_SENSOR,
+        CONF_STALE_WINDOW_MINUTES,
+    ):
+        assert key not in entry.data, key
+    # end for
 # end test_reconfigure_switches_tariff_type_and_keeps_currency
 
 

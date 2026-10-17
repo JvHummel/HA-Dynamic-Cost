@@ -347,6 +347,122 @@ async def test_unavailable_logging_is_edge_triggered(hass, simulator, caplog):
 # end test_unavailable_logging_is_edge_triggered
 
 
+def _window_logs(caplog, level: int) -> list[str]:
+    """The stale-window lines logged at level (plan: logging)."""
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == level
+        and record.name.startswith("custom_components.dynamic_cost")
+        and "racking window" in record.getMessage()
+    ]
+# end _window_logs
+
+
+async def test_stale_window_warns_once_then_logs_its_close(hass, simulator, caplog):
+    """Open past the default 120 minutes: one warning naming the import price
+    sensor, however long it lasts, and one info line when it finally closes."""
+    caplog.set_level(logging.INFO, logger="custom_components.dynamic_cost")
+    await simulator.async_setup_hub(solar=[SOLAR])
+
+    await simulator.async_wait(119 * 60)
+    assert _window_logs(caplog, logging.WARNING) == []
+    assert simulator.hub_state("window_status") == "open"
+
+    await simulator.async_wait(121 * 60)
+    warnings = _window_logs(caplog, logging.WARNING)
+    assert len(warnings) == 1
+    assert SIM_IMPORT_PRICE in warnings[0]
+    assert simulator.hub_state("window_status") == "overdue"
+
+    await simulator.async_wait(300 * 60)
+    assert len(_window_logs(caplog, logging.WARNING)) == 1
+
+    simulator.advance_meter(SOLAR, 1.0)              # still counted in the end
+    await simulator.async_advance_window(import_price=0.30)
+    assert len(_window_logs(caplog, logging.INFO)) == 1
+    assert simulator.hub_state("window_status") == "open"
+    assert simulator.get_total("solar_to_house") == pytest.approx(1.0)
+# end test_stale_window_warns_once_then_logs_its_close
+
+
+async def test_stale_window_timeout_follows_hub_setting(hass, simulator, caplog):
+    caplog.set_level(logging.INFO, logger="custom_components.dynamic_cost")
+    await simulator.async_setup_hub(stale_window_minutes=30)
+
+    await simulator.async_wait(29 * 60)
+    assert _window_logs(caplog, logging.WARNING) == []
+    await simulator.async_wait(31 * 60)
+    assert len(_window_logs(caplog, logging.WARNING)) == 1
+# end test_stale_window_timeout_follows_hub_setting
+
+
+async def test_closing_a_window_cancels_its_countdown(hass, simulator, caplog):
+    """Only the window that actually went stale warns: a window that closed in
+    time leaves no countdown running behind it.
+
+    (Each async_wait counts from the same real "now", so the two windows'
+    countdowns end at nearly the same moment; a leftover one would show up as
+    a second warning.)
+    """
+    caplog.set_level(logging.INFO, logger="custom_components.dynamic_cost")
+    await simulator.async_setup_hub(stale_window_minutes=30)
+
+    await simulator.async_advance_window()           # the first window closes
+    await simulator.async_wait(31 * 60)              # the second goes stale
+    assert len(_window_logs(caplog, logging.WARNING)) == 1
+# end test_closing_a_window_cancels_its_countdown
+
+
+async def test_stale_warning_names_a_missing_lock(hass, simulator, caplog):
+    """Held open past the timeout: the warning names the export price sensor."""
+    caplog.set_level(logging.INFO, logger="custom_components.dynamic_cost")
+    await simulator.async_setup_hub()
+    await simulator.async_wait(PAST_GRACE)
+    simulator.set_unavailable(SIM_EXPORT_PRICE)
+    simulator.set_price(import_price=0.30)           # next window: no export price
+    await hass.async_block_till_done()
+    simulator.set_price(import_price=0.40)           # boundary: held open
+    await hass.async_block_till_done()
+
+    await simulator.async_wait(121 * 60)
+    warnings = _window_logs(caplog, logging.WARNING)
+    assert len(warnings) == 1
+    assert "held open" in warnings[0] and SIM_EXPORT_PRICE in warnings[0]
+    assert simulator.hub_state("window_status") == "held_open"
+# end test_stale_warning_names_a_missing_lock
+
+
+async def test_no_window_yet_warns_too(hass, simulator, caplog):
+    """A first start whose import price never arrives also gets its warning."""
+    caplog.set_level(logging.INFO, logger="custom_components.dynamic_cost")
+    await simulator.async_setup_hub(import_price_available=False)
+    assert simulator.hub_state("window_status") == "no_window"
+
+    await simulator.async_wait(121 * 60)
+    warnings = _window_logs(caplog, logging.WARNING)
+    assert len(warnings) == 1
+    assert warnings[0].startswith("No tracking window")
+    assert SIM_IMPORT_PRICE in warnings[0]
+# end test_no_window_yet_warns_too
+
+
+async def test_fixed_windows_never_warn(hass, simulator, caplog):
+    """Fixed windows close on their own timer, so they never go stale -- even
+    a window longer than the timeout."""
+    caplog.set_level(logging.INFO, logger="custom_components.dynamic_cost")
+    await simulator.async_setup_hub(
+        tariff_mode=TariffMode.FIXED,
+        import_tariff=0.25,
+        export_tariff=0.08,
+        window_minutes=180,
+        stale_window_minutes=30,
+    )
+    await simulator.async_wait(121 * 60)
+    assert _window_logs(caplog, logging.WARNING) == []
+# end test_fixed_windows_never_warn
+
+
 async def test_fixed_tariff_windows(hass, simulator):
     """Fixed tariffs: timer-driven windows at the configured prices."""
     await simulator.async_setup_hub(

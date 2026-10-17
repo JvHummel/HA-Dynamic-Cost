@@ -11,17 +11,19 @@ import logging
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers.event import (
     async_call_later,
+    async_track_point_in_utc_time,
     async_track_state_change_event,
     async_track_time_interval,
 )
 from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 
 from . import calc
 from .calc import WindowEnergy
@@ -33,9 +35,11 @@ from .const import (
     CONF_GRID_IMPORT_SENSOR,
     CONF_IMPORT_PRICE_SENSOR,
     CONF_IMPORT_TARIFF,
+    CONF_STALE_WINDOW_MINUTES,
     CONF_TARIFF_MODE,
     CONF_TREAT_SOLAR_AS_FREE,
     CONF_WINDOW_MINUTES,
+    DEFAULT_STALE_WINDOW_MINUTES,
     DOMAIN,
     ENERGY_SPLIT_KEYS,
     EXPORT_PRICE_GRACE_SECONDS,
@@ -45,6 +49,7 @@ from .const import (
     WINDOW_SETTINGS_KEYS,
     DeviceType,
     TariffMode,
+    WindowStatus,
     unique_id,
 )
 
@@ -108,6 +113,9 @@ class WindowState:
     # Dynamic mode: the import price the NEXT window opens with, taken from
     # the price change that triggered the (possibly pending) boundary.
     next_import_price: float | None = None
+    # When the window opened (UTC). Saved, so a restart doesn't reset the
+    # stale-window countdown.
+    opened_at: datetime | None = None
 # end WindowState
 
 
@@ -156,6 +164,13 @@ class WindowEngine:
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, storage_key(entry_id)
         )
+        self._last_closed_at: datetime | None = None
+        # Dynamic mode's stale-window warning (plan: logging). One timer runs
+        # at a time, counting from when the open window opened, or from hub
+        # start while there's no window yet. _overdue is True once it fired,
+        # until the next window opens.
+        self._cancel_overdue: Callable[[], None] | None = None
+        self._overdue = False
     # end __init__
 
     # -- small helpers -----------------------------------------------------
@@ -185,6 +200,10 @@ class WindowEngine:
     def _window_settings(self) -> dict[str, Any]:
         return {key: self._config.get(key) for key in WINDOW_SETTINGS_KEYS}
     # end _window_settings
+
+    def _stale_minutes(self) -> float:
+        return self._config.get(CONF_STALE_WINDOW_MINUTES, DEFAULT_STALE_WINDOW_MINUTES)
+    # end _stale_minutes
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -256,6 +275,7 @@ class WindowEngine:
 
         if restored:
             self._window.grace_elapsed = True
+            self._start_overdue_timer(self._window.opened_at)
             self._lock_tentative_values()
             self._close_if_pending()
             return
@@ -269,6 +289,10 @@ class WindowEngine:
             )
             if import_price is not None:
                 self._open_window(import_price, first=True)
+            else:
+                # No window yet: count from now, so a price sensor that
+                # never reports gets a warning too.
+                self._start_overdue_timer(dt_util.utcnow())
             # end if
         # end if
     # end async_start
@@ -290,6 +314,11 @@ class WindowEngine:
             self._window.cancel_grace()
             self._window.cancel_grace = None
         # end if
+
+        if self._cancel_overdue is not None:
+            self._cancel_overdue()
+            self._cancel_overdue = None
+        # end if
     # end async_stop
 
     @callback
@@ -305,7 +334,10 @@ class WindowEngine:
             self._window.cancel_grace()
         # end if
 
-        self._window = WindowState(import_price=import_price)
+        self._window = WindowState(
+            import_price=import_price, opened_at=dt_util.utcnow()
+        )
+        self._start_overdue_timer(self._window.opened_at)
 
         if self._fixed:
             self._window.tentative_export_price = self._config[CONF_EXPORT_TARIFF]
@@ -342,8 +374,84 @@ class WindowEngine:
             EXPORT_PRICE_GRACE_SECONDS,
             self._async_grace_elapsed,
         )
-        self._schedule_save()
+        self._changed()
     # end _open_window
+
+    # -- stale-window warning ----------------------------------------------
+
+    @callback
+    def _start_overdue_timer(self, since: datetime) -> None:
+        """(Re)start the stale-window countdown from since (dynamic mode only).
+
+        Fixed windows close on a timer, so they can't go stale on a price.
+        A since already more than the timeout ago (a restored window) fires
+        straight away.
+        """
+        if self._cancel_overdue is not None:
+            self._cancel_overdue()
+            self._cancel_overdue = None
+        # end if
+        self._overdue = False
+
+        if self._fixed:
+            return
+        # end if
+
+        self._cancel_overdue = async_track_point_in_utc_time(
+            self._hass,
+            self._async_overdue,
+            since + timedelta(minutes=self._stale_minutes()),
+        )
+    # end _start_overdue_timer
+
+    @callback
+    def _async_overdue(self, _now: Any) -> None:
+        """The window outlived the stale-window timeout: warn once, saying why.
+
+        Edge-triggered like the unavailable-sensor warnings: one warning
+        when a window goes overdue, one info line when it finally closes.
+        """
+        self._cancel_overdue = None
+        self._overdue = True
+        minutes = int(self._stale_minutes())
+        window = self._window
+
+        if not self._window_open:
+            _LOGGER.warning(
+                "No tracking window after %d minutes: %s has not reported a "
+                "usable import price yet. Nothing is tracked until it does",
+                minutes,
+                self._config[CONF_IMPORT_PRICE_SENSOR],
+            )
+        elif window.close_pending:
+            missing = []
+            if window.locked_export_price is None:
+                missing.append(
+                    f"an export price from {self._config[CONF_EXPORT_PRICE_SENSOR]}"
+                )
+            # end if
+            if window.locked_curtailed is None:
+                missing.append(f"an on/off state from {self._curtailment_source()}")
+            # end if
+            _LOGGER.warning(
+                "Tracking window open for over %d minutes: held open, waiting "
+                "for %s",
+                minutes,
+                " and ".join(missing),
+            )
+        else:
+            _LOGGER.warning(
+                "Tracking window open for over %d minutes: import price %s has "
+                "stayed at %s since %s. Check that it is the right sensor",
+                minutes,
+                self._config[CONF_IMPORT_PRICE_SENSOR],
+                window.import_price,
+                dt_util.as_local(window.opened_at).strftime("%Y-%m-%d %H:%M"),
+            )
+        # end if
+
+        self._notify()
+    # end _async_overdue
 
     # -- persistence -------------------------------------------------------
 
@@ -383,6 +491,10 @@ class WindowEngine:
             # end if
         # end for
 
+        if data.get("last_closed_at"):
+            self._last_closed_at = dt_util.parse_datetime(data["last_closed_at"])
+        # end if
+
         window = data.get("window")
         if not window or data.get("settings") != self._window_settings():
             return False
@@ -391,6 +503,12 @@ class WindowEngine:
         def unset_if_none(value: Any) -> Any:
             return UNSET if value is None else value
         # end unset_if_none
+
+        # Stores written before opened_at existed: count from now.
+        opened_at = None
+        if window.get("opened_at"):
+            opened_at = dt_util.parse_datetime(window["opened_at"])
+        # end if
 
         self._window = WindowState(
             import_price=window["import_price"],
@@ -401,6 +519,7 @@ class WindowEngine:
             grace_elapsed=window["grace_elapsed"],
             close_pending=window["close_pending"],
             next_import_price=window["next_import_price"],
+            opened_at=opened_at or dt_util.utcnow(),
         )
         return True
     # end _async_restore
@@ -414,6 +533,21 @@ class WindowEngine:
         """
         self._store.async_delay_save(self._data_to_save, SAVE_DELAY_SECONDS)
     # end _schedule_save
+
+    @callback
+    def _notify(self) -> None:
+        """Tell every entity to refresh: a total or the window's state moved."""
+        for update_callback in list(self._listeners):
+            update_callback()
+        # end for
+    # end _notify
+
+    @callback
+    def _changed(self) -> None:
+        """Something worth surviving a restart changed: save it and show it."""
+        self._schedule_save()
+        self._notify()
+    # end _changed
 
     @callback
     def _data_to_save(self) -> dict[str, Any]:
@@ -439,11 +573,18 @@ class WindowEngine:
                 "grace_elapsed": state.grace_elapsed,
                 "close_pending": state.close_pending,
                 "next_import_price": state.next_import_price,
+                "opened_at": state.opened_at.isoformat(),
             }
+        # end if
+
+        last_closed_at = None
+        if self._last_closed_at is not None:
+            last_closed_at = self._last_closed_at.isoformat()
         # end if
 
         return {
             "totals": dict(self._totals),
+            "last_closed_at": last_closed_at,
             "snapshots": {
                 entity_id: tracked.snapshot
                 for entity_id, tracked in self._sensors.items()
@@ -663,7 +804,7 @@ class WindowEngine:
         self._window.tentative_export_price = price
         if self._window.grace_elapsed and self._window.locked_export_price is None:
             self._window.locked_export_price = price
-            self._schedule_save()
+            self._changed()
             self._close_if_pending()
         # end if
     # end _async_export_price_changed
@@ -683,7 +824,7 @@ class WindowEngine:
         self._window.tentative_curtailed = curtailed
         if self._window.grace_elapsed and self._window.locked_curtailed is None:
             self._window.locked_curtailed = curtailed
-            self._schedule_save()
+            self._changed()
             self._close_if_pending()
         # end if
     # end _async_curtailment_changed
@@ -720,7 +861,7 @@ class WindowEngine:
             window.locked_curtailed = window.tentative_curtailed
         # end if
 
-        self._schedule_save()
+        self._changed()
     # end _lock_tentative_values
 
     def _is_locked(self) -> bool:
@@ -758,7 +899,7 @@ class WindowEngine:
 
         if not self._is_locked():
             self._window.close_pending = True
-            self._schedule_save()
+            self._changed()
             return
         # end if
 
@@ -812,10 +953,15 @@ class WindowEngine:
             # end if
         # end for
 
-        for update_callback in list(self._listeners):
-            update_callback()
-        # end for
+        self._last_closed_at = dt_util.utcnow()
+        if self._overdue:
+            _LOGGER.info(
+                "Tracking window closed after %d minutes",
+                (self._last_closed_at - window.opened_at).total_seconds() // 60,
+            )
+        # end if
 
+        # Opening the next window saves everything and refreshes the entities.
         if self._fixed:
             self._open_window(self._config[CONF_IMPORT_TARIFF])
         else:
@@ -834,6 +980,60 @@ class WindowEngine:
         """Current cumulative total for one unique id (see self._totals)."""
         return self._totals.get(key, 0.0)
     # end get_total
+
+    # Read-only views of the window, for the hub's diagnostic sensors. None
+    # means "not known yet": no window, or nothing locked.
+
+    @property
+    def status(self) -> WindowStatus:
+        """No window yet, held open for a lock, overdue, or simply open.
+
+        Held open wins over overdue: it names the reason the window is late.
+        """
+        if not self._window_open:
+            return WindowStatus.NO_WINDOW
+        # end if
+        if self._window.close_pending:
+            return WindowStatus.HELD_OPEN
+        # end if
+        if self._overdue:
+            return WindowStatus.OVERDUE
+        # end if
+        return WindowStatus.OPEN
+    # end status
+
+    @property
+    def tracks_curtailment(self) -> bool:
+        return self._curtailment_source() is not None
+    # end tracks_curtailment
+
+    @property
+    def window_import_price(self) -> float | None:
+        return self._window.import_price
+    # end window_import_price
+
+    @property
+    def window_export_price(self) -> float | None:
+        return self._window.locked_export_price
+    # end window_export_price
+
+    @property
+    def window_curtailed(self) -> bool | None:
+        if not self._window_open:
+            return None
+        # end if
+        return self._window.locked_curtailed
+    # end window_curtailed
+
+    @property
+    def window_opened_at(self) -> datetime | None:
+        return self._window.opened_at
+    # end window_opened_at
+
+    @property
+    def last_window_closed_at(self) -> datetime | None:
+        return self._last_closed_at
+    # end last_window_closed_at
 
     @callback
     def async_add_listener(

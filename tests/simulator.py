@@ -55,6 +55,7 @@ from custom_components.dynamic_cost.const import (
     CONF_IMPORT_PRICE_SENSOR,
     CONF_IMPORT_SENSOR,
     CONF_IMPORT_TARIFF,
+    CONF_STALE_WINDOW_MINUTES,
     CONF_TARIFF_MODE,
     CONF_TREAT_SOLAR_AS_FREE,
     CONF_WINDOW_MINUTES,
@@ -100,6 +101,7 @@ class Simulator:
         import_tariff: float = 0.0,
         export_tariff: float = 0.0,
         window_minutes: int = 15,
+        stale_window_minutes: int | None = None,
         currency: str = "EUR",
     ) -> MockConfigEntry:
         """Create a hub config entry plus device subentries, and load it.
@@ -109,7 +111,9 @@ class Simulator:
         exactly as if the user had clicked "Add device" in the UI.
 
         import_tariff, export_tariff and window_minutes only matter in
-        fixed tariff mode.
+        fixed tariff mode. stale_window_minutes only matters in dynamic mode;
+        left None, the hub has no such setting, like one set up before it
+        existed, and the engine uses its default.
 
         curtailment=True configures CURTAILMENT as the hub's curtailment
         source (starting off); drive it with set_curtailed(). Left False,
@@ -175,6 +179,9 @@ class Simulator:
             CONF_TREAT_SOLAR_AS_FREE: treat_solar_as_free,
             CONF_CURRENCY: currency,
         }
+        if stale_window_minutes is not None:
+            data[CONF_STALE_WINDOW_MINUTES] = stale_window_minutes
+        # end if
         # An empty optional field is absent from the saved data, not None.
         if curtailment:
             data[CONF_CURTAILMENT_SOURCE] = CURTAILMENT
@@ -415,6 +422,15 @@ class Simulator:
         state = self._hass.states.get(entity_id)
         return state.state if state else None
     # end get_state
+
+    def hub_state(self, key: str) -> str | None:
+        """The state of one of the hub's own entities (a split or a diagnostic).
+
+        None if the hub has no such entity.
+        """
+        entity_id = self.entity_id_for(key)
+        return None if entity_id is None else self.get_state(entity_id)
+    # end hub_state
 
     def entity_id_for(self, key: str, device: str | None = None) -> str | None:
         """Find one of your entities by its unique id.

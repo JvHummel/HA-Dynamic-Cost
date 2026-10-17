@@ -37,9 +37,11 @@ from .const import (
     CONF_IMPORT_PRICE_SENSOR,
     CONF_IMPORT_SENSOR,
     CONF_IMPORT_TARIFF,
+    CONF_STALE_WINDOW_MINUTES,
     CONF_TARIFF_MODE,
     CONF_TREAT_SOLAR_AS_FREE,
     CONF_WINDOW_MINUTES,
+    DEFAULT_STALE_WINDOW_MINUTES,
     DOMAIN,
     DeviceType,
     TariffMode,
@@ -75,6 +77,17 @@ WINDOW_MINUTES_SELECTOR = selector.NumberSelector(
         step=1,
         unit_of_measurement="min",
     )
+)
+
+STALE_WINDOW_MINUTES_SELECTOR = WINDOW_MINUTES_SELECTOR
+
+# The hub fields that hold a sensor, so _check_sensors reads only those and
+# not the numbers that share a step with them.
+HUB_SENSOR_FIELDS = (
+    CONF_GRID_IMPORT_SENSOR,
+    CONF_GRID_EXPORT_SENSOR,
+    CONF_IMPORT_PRICE_SENSOR,
+    CONF_EXPORT_PRICE_SENSOR,
 )
 
 TARIFF_MODE_SELECTOR = selector.SelectSelector(
@@ -157,14 +170,22 @@ class DynamicCostConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """A form of sensor pickers, validated with _check_sensors().
 
-        Errors show the form again. Sensors that read unavailable go to the
+        Fields that aren't in HUB_SENSOR_FIELDS are saved unchecked. Errors
+        show the form again. Sensors that read unavailable go to the
         confirmation step first, because a briefly-unavailable sensor is not
         necessarily misconfigured. Then continue to next_step.
         """
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            errors, unavailable = _check_sensors(self.hass, user_input)
+            errors, unavailable = _check_sensors(
+                self.hass,
+                {
+                    field: entity_id
+                    for field, entity_id in user_input.items()
+                    if field in HUB_SENSOR_FIELDS
+                },
+            )
             if not errors:
                 self._data.update(user_input)
                 if unavailable:
@@ -231,7 +252,11 @@ class DynamicCostConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             self._data.update(user_input)
             if user_input[CONF_TARIFF_MODE] == TariffMode.FIXED:
-                for key in (CONF_IMPORT_PRICE_SENSOR, CONF_EXPORT_PRICE_SENSOR):
+                for key in (
+                    CONF_IMPORT_PRICE_SENSOR,
+                    CONF_EXPORT_PRICE_SENSOR,
+                    CONF_STALE_WINDOW_MINUTES,
+                ):
                     self._data.pop(key, None)
                 # end for
                 return await self.async_step_fixed()
@@ -274,11 +299,18 @@ class DynamicCostConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_dynamic(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Step 2b: import and export price sensors."""
+        """Step 2b: import and export price sensors, and the stale-window warning.
+
+        The warning's timeout defaults to DEFAULT_STALE_WINDOW_MINUTES, also
+        when reconfiguring a hub set up before the setting existed.
+        """
         schema = vol.Schema(
             {
                 vol.Required(CONF_IMPORT_PRICE_SENSOR): PRICE_SENSOR_SELECTOR,
                 vol.Required(CONF_EXPORT_PRICE_SENSOR): PRICE_SENSOR_SELECTOR,
+                vol.Required(
+                    CONF_STALE_WINDOW_MINUTES, default=DEFAULT_STALE_WINDOW_MINUTES
+                ): STALE_WINDOW_MINUTES_SELECTOR,
             }
         )
         return await self._async_sensor_step("dynamic", schema, user_input, "options")

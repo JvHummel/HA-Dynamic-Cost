@@ -30,10 +30,16 @@ Switching tariff type keeps all records; only the currency is fixed.
 
 ## What you get
 
-- **Per hub** — 8 energy splits (kWh) and 10 financial splits (your
+- **Per hub** — up to 8 energy splits (kWh) and 10 financial splits (your
   currency), such as *Solar to house* and *Solar to house savings*. All are
   cumulative `total` sensors, so they work with long-term statistics and the
-  Energy dashboard, and may go negative where the maths says so.
+  Energy dashboard, and may go negative where the maths says so. Splits that
+  need solar or a battery only appear once you've added one.
+- **Diagnostics, for dynamic tariffs** — the window's status, its import
+  and export price, its curtailment state (with a curtailment source), when
+  it opened and when the last one closed. If a window stays open longer than
+  the warning time you set (default 120 minutes), a warning is logged:
+  usually the price sensor is wrong or stuck.
 - **Per device** — its energy per sensor (*Energy produced*, *Energy
   charged*, …), and for general devices also *Energy cost* at the import
   price.
@@ -82,20 +88,30 @@ Assistant releases. See `.github/workflows/ci.yml`.
 
 ## Releasing
 
-1. Set the new version in `custom_components/dynamic_cost/manifest.json`
-   (for example `0.1.1`), commit and push.
-2. Tag that commit `v` plus the same version, and push the tag:
+Work towards a new version is published as betas first, and the final
+release follows once it has proven itself.
 
-       git tag v0.1.1
-       git push origin v0.1.1
+1. **Start the version** with the first push after a release: set
+   `version` in `custom_components/dynamic_cost/manifest.json` to the next
+   version plus a beta suffix (`0.3.0-beta.1`), and add a section at the top
+   of [CHANGELOG.md](CHANGELOG.md), `## [0.3.0] - Unreleased`, saying what
+   changes for someone using the integration.
+2. **Every push** while it's in progress counts the beta up (`-beta.2`, …)
+   and keeps the changelog section current. Once CI is green, tag it:
 
-   (In VS Code: Source Control → ⋯ → Tags → Create Tag, then push it.)
+       git tag v0.3.0-beta.1
+       git push origin v0.3.0-beta.1
+
+   That publishes a pre-release. HACS only offers it to installations that
+   have beta versions turned on for this repository.
+3. **Finish the version:** remove the suffix (`0.3.0`), replace `Unreleased`
+   with the date, push, and tag `v0.3.0` once CI is green.
 
 The Release workflow runs the full CI on the tagged commit, checks that the
-tag matches the manifest, and publishes a GitHub release with notes generated
-from the commits since the previous tag. HACS then offers it as an update. A
-tag with a suffix, such as `v0.2.0-beta.1`, becomes a pre-release, which HACS
-only offers to users who opted into betas.
+tag matches the manifest, that CHANGELOG.md has a section for the version,
+and that a final release's section is dated, then publishes the release with
+that section as its notes, plus a link to the full diff. If a check fails,
+nothing is published.
 
 ## License
 

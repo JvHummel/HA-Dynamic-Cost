@@ -1,16 +1,24 @@
 """Sensor platform for Dynamic Cost.
 
-Two families of entity live here:
-  * hub-level split sensors (8 energy + 10 financial)
+Three families of entity live here:
+  * hub-level split sensors (up to 8 energy + 10 financial), each created
+    only once the hub has the devices it needs
   * per-device counters (energy per sensor; value for general devices)
+  * hub-level diagnostic sensors showing the window engine's state, for
+    dynamic-tariff hubs only
 
-Each hub is a Home Assistant device holding its split sensors, and each of
-its devices is a Home Assistant device of its own (plan: entities). All of
-these are cumulative totals kept by the window engine, so they may go
-negative -- that is exactly why this does not build on utility_meter.
+Each hub is a Home Assistant device holding its split and diagnostic
+sensors, and each of its devices is a Home Assistant device of its own
+(plan: entities). The splits and counters are cumulative totals kept by the
+window engine, so they may go negative -- that is exactly why this does not
+build on utility_meter.
 """
 
 from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -19,21 +27,27 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigSubentry
-from homeassistant.const import UnitOfEnergy
-from homeassistant.core import HomeAssistant
+from homeassistant.const import EntityCategory, UnitOfEnergy
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import DynamicCostConfigEntry
 from .const import (
     CONF_CURRENCY,
+    CONF_TARIFF_MODE,
     DEVICE_COUNTER_KEYS,
     DOMAIN,
     ENERGY_SPLIT_KEYS,
     FINANCIAL_SPLIT_KEYS,
+    SPLIT_REQUIRES,
     DeviceType,
+    TariffMode,
+    WindowStatus,
     unique_id,
 )
+from .window import WindowEngine
 
 
 def _energy(key: str, translation_key: str) -> SensorEntityDescription:
@@ -60,6 +74,85 @@ def _monetary(key: str, translation_key: str, currency: str) -> SensorEntityDesc
 # end _monetary
 
 
+@dataclass(frozen=True, kw_only=True)
+class DiagnosticDescription(SensorEntityDescription):
+    """A diagnostic sensor: which engine value it shows."""
+
+    value_fn: Callable[[WindowEngine], str | float | datetime | None]
+# end DiagnosticDescription
+
+
+def _curtailed_state(engine: WindowEngine) -> str | None:
+    curtailed = engine.window_curtailed
+    if curtailed is None:
+        return None
+    # end if
+    return "curtailed" if curtailed else "not_curtailed"
+# end _curtailed_state
+
+
+def _diagnostics(currency: str, curtailment: bool) -> list[DiagnosticDescription]:
+    """The dynamic-tariff diagnostics (plan: entities, diagnostics).
+
+    The curtailment state only exists when the hub has a curtailment source.
+    """
+    price_per_kwh = f"{currency}/{UnitOfEnergy.KILO_WATT_HOUR}"
+    descriptions = [
+        DiagnosticDescription(
+            key="window_status",
+            translation_key="window_status",
+            device_class=SensorDeviceClass.ENUM,
+            options=[status.value for status in WindowStatus],
+            entity_category=EntityCategory.DIAGNOSTIC,
+            value_fn=lambda engine: engine.status,
+        ),
+        DiagnosticDescription(
+            key="window_import_price",
+            translation_key="window_import_price",
+            native_unit_of_measurement=price_per_kwh,
+            suggested_display_precision=5,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            value_fn=lambda engine: engine.window_import_price,
+        ),
+        DiagnosticDescription(
+            key="window_export_price",
+            translation_key="window_export_price",
+            native_unit_of_measurement=price_per_kwh,
+            suggested_display_precision=5,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            value_fn=lambda engine: engine.window_export_price,
+        ),
+        DiagnosticDescription(
+            key="window_opened",
+            translation_key="window_opened",
+            device_class=SensorDeviceClass.TIMESTAMP,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            value_fn=lambda engine: engine.window_opened_at,
+        ),
+        DiagnosticDescription(
+            key="last_window_closed",
+            translation_key="last_window_closed",
+            device_class=SensorDeviceClass.TIMESTAMP,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            value_fn=lambda engine: engine.last_window_closed_at,
+        ),
+    ]
+    if curtailment:
+        descriptions.append(
+            DiagnosticDescription(
+                key="window_curtailed",
+                translation_key="window_curtailed",
+                device_class=SensorDeviceClass.ENUM,
+                options=["curtailed", "not_curtailed"],
+                entity_category=EntityCategory.DIAGNOSTIC,
+                value_fn=_curtailed_state,
+            )
+        )
+    # end if
+    return descriptions
+# end _diagnostics
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: DynamicCostConfigEntry,
@@ -67,18 +160,43 @@ async def async_setup_entry(
 ) -> None:
     """Create all entities for this hub and its device subentries.
 
+    A split is created only when the hub has every device type it needs
+    (const.SPLIT_REQUIRES); without them it could only ever read 0. The hub
+    reloads whenever a device is added or removed, so the splits follow.
+    Hub entities that no longer apply are removed from the entity registry;
+    their totals stay in the store, so a split that comes back carries on.
+
     Each device's entities are added with its config_subentry_id, so they
     belong to that subentry rather than to the hub.
     """
     currency = entry.data[CONF_CURRENCY]
+    engine = entry.runtime_data
+    device_types = {
+        DeviceType(subentry.subentry_type) for subentry in entry.subentries.values()
+    }
 
-    async_add_entities(
-        [DynamicCostSplitSensor(entry, _energy(key, key)) for key in ENERGY_SPLIT_KEYS]
-        + [
-            DynamicCostSplitSensor(entry, _monetary(key, key, currency))
-            for key in FINANCIAL_SPLIT_KEYS
+    def applies(key: str) -> bool:
+        return SPLIT_REQUIRES[key] <= device_types
+    # end applies
+
+    hub_entities: list[SensorEntity] = [
+        DynamicCostSplitSensor(entry, _energy(key, key))
+        for key in ENERGY_SPLIT_KEYS
+        if applies(key)
+    ] + [
+        DynamicCostSplitSensor(entry, _monetary(key, key, currency))
+        for key in FINANCIAL_SPLIT_KEYS
+        if applies(key)
+    ]
+    if entry.data[CONF_TARIFF_MODE] == TariffMode.DYNAMIC:
+        hub_entities += [
+            DynamicCostDiagnosticSensor(entry, description)
+            for description in _diagnostics(currency, engine.tracks_curtailment)
         ]
-    )
+    # end if
+
+    _remove_stale_hub_entities(hass, entry, {e.unique_id for e in hub_entities})
+    async_add_entities(hub_entities)
 
     for subentry in entry.subentries.values():
         device_type = DeviceType(subentry.subentry_type)
@@ -105,8 +223,31 @@ async def async_setup_entry(
 # end async_setup_entry
 
 
-class _DynamicCostTotal(SensorEntity):
-    """Shared behaviour: show one engine total, refresh when a window settles."""
+@callback
+def _remove_stale_hub_entities(
+    hass: HomeAssistant, entry: DynamicCostConfigEntry, keep: set[str | None]
+) -> None:
+    """Drop the hub's own registry entries that this setup no longer creates.
+
+    Hub entities are the ones without a subentry; Home Assistant already
+    removes a device's entities when the device itself is removed.
+    """
+    registry = er.async_get(hass)
+    for registered in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if registered.config_subentry_id is None and registered.unique_id not in keep:
+            registry.async_remove(registered.entity_id)
+        # end if
+    # end for
+# end _remove_stale_hub_entities
+
+
+def _hub_device(entry: DynamicCostConfigEntry) -> DeviceInfo:
+    return DeviceInfo(identifiers={(DOMAIN, entry.entry_id)}, name=entry.title)
+# end _hub_device
+
+
+class _DynamicCostEntity(SensorEntity):
+    """Shared behaviour: follow the hub's window engine."""
 
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -117,11 +258,10 @@ class _DynamicCostTotal(SensorEntity):
         owner_id: str,
         description: SensorEntityDescription,
     ) -> None:
-        """Bind the entity to the engine total of owner_id's description.key.
+        """Bind the entity to its engine, under owner_id's description.key.
 
-        The unique id doubles as the engine's key for this total, and it is
-        what lets Home Assistant remember the user's renames and
-        customisations across restarts.
+        The unique id is what lets Home Assistant remember the user's
+        renames and customisations across restarts.
         """
         self._engine = entry.runtime_data
         self.entity_description = description
@@ -129,13 +269,18 @@ class _DynamicCostTotal(SensorEntity):
     # end __init__
 
     async def async_added_to_hass(self) -> None:
-        """Subscribe to the engine so this entity updates when a window settles.
+        """Subscribe to the engine, which says when anything shown changed.
 
-        Nothing to restore here: the engine holds and persists every total
+        Nothing to restore here: the engine holds and persists everything
         (plan: Persistence), so the entity just displays it.
         """
         self.async_on_remove(self._engine.async_add_listener(self.async_write_ha_state))
     # end async_added_to_hass
+# end _DynamicCostEntity
+
+
+class _DynamicCostTotal(_DynamicCostEntity):
+    """Show one engine total."""
 
     @property
     def native_value(self) -> float:
@@ -153,12 +298,28 @@ class DynamicCostSplitSensor(_DynamicCostTotal):
         self, entry: DynamicCostConfigEntry, description: SensorEntityDescription
     ) -> None:
         super().__init__(entry, entry.entry_id, description)
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, entry.entry_id)},
-            name=entry.title,
-        )
+        self._attr_device_info = _hub_device(entry)
     # end __init__
 # end DynamicCostSplitSensor
+
+
+class DynamicCostDiagnosticSensor(_DynamicCostEntity):
+    """One view of the window engine's state, on the hub's own device."""
+
+    entity_description: DiagnosticDescription
+
+    def __init__(
+        self, entry: DynamicCostConfigEntry, description: DiagnosticDescription
+    ) -> None:
+        super().__init__(entry, entry.entry_id, description)
+        self._attr_device_info = _hub_device(entry)
+    # end __init__
+
+    @property
+    def native_value(self) -> str | float | datetime | None:
+        return self.entity_description.value_fn(self._engine)
+    # end native_value
+# end DynamicCostDiagnosticSensor
 
 
 class DynamicCostDeviceSensor(_DynamicCostTotal):

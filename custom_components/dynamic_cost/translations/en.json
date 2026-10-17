@@ -27,7 +27,11 @@
         "title": "Dynamic tariffs",
         "data": {
           "import_price_sensor": "Import price sensor",
-          "export_price_sensor": "Export price sensor"
+          "export_price_sensor": "Export price sensor",
+          "stale_window_minutes": "Warn when a window stays open longer than (minutes)"
+        },
+        "data_description": {
+          "stale_window_minutes": "A window closes when the import price changes. If one stays open longer than this, a warning is logged; usually the price sensor is wrong or stuck. Set it well above how often your price changes."
         }
       },
       "options": {
@@ -255,6 +259,34 @@
       },
       "battery_export_energy": {
         "name": "Energy discharged"
+      },
+      "window_status": {
+        "name": "Window status",
+        "state": {
+          "no_window": "No window yet",
+          "open": "Open",
+          "held_open": "Held open",
+          "overdue": "Overdue"
+        }
+      },
+      "window_import_price": {
+        "name": "Window import price"
+      },
+      "window_export_price": {
+        "name": "Window export price"
+      },
+      "window_curtailed": {
+        "name": "Window curtailment",
+        "state": {
+          "curtailed": "Curtailed",
+          "not_curtailed": "Not curtailed"
+        }
+      },
+      "window_opened": {
+        "name": "Window opened"
+      },
+      "last_window_closed": {
+        "name": "Last window closed"
       }
     }
   }

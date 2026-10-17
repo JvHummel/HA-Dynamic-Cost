@@ -9,7 +9,7 @@ Five components make up the integration:
 1. **Calculation engine** — pure arithmetic (the energy and financial splits), no Home Assistant dependency at all.
 2. **Window engine** — decides when a tracking window opens and closes (fixed timer or dynamic import-price change), and feeds the calculation engine the deltas for that window.
 3. **Config flow** — the hub setup wizard, plus per-device subentries (general / solar / battery) addable later without re-running the wizard.
-4. **Entities** — the sensors Home Assistant shows, built from the engine's output at each window close.
+4. **Entities** — the sensors Home Assistant shows: the splits and device counters, built from the engine's output at each window close, and for dynamic tariffs a few diagnostics showing the window engine's state.
 5. **Persistence** — cumulative totals, in-progress window state, and the locked export price all survive a restart, in one store per hub owned by the window engine.
 
 ## Calculation engine
@@ -72,7 +72,7 @@ Home Assistant forms can't show or hide a field based on another field in the sa
 | 1 | Grid import sensor, grid export sensor | Both mandatory; picker restricted to `device_class: energy` entities |
 | 2 | Tariff mode | Fixed or Dynamic — branches the next step |
 | 2a (Fixed) | Import tariff, export tariff, tracking window (minutes) | Tariffs in currency/kWh; window duration drives the fixed timer |
-| 2b (Dynamic) | Import price sensor, export price sensor | Window boundaries follow the import price sensor |
+| 2b (Dynamic) | Import price sensor, export price sensor, stale-window warning (minutes) | Window boundaries follow the import price sensor. The warning time defaults to 120 minutes; see Logging |
 | 3 | Treat solar to battery energy as free | Checkbox, off by default |
 | 4 | Currency | Sets `native_unit_of_measurement` for every monetary sensor under this hub. Defaults to Home Assistant's own currency setting. Fixed after setup |
 | 5 (checkbox off) | Curtailment source | Optional entity picker limited to `input_boolean`, `switch` and `binary_sensor`. Empty means never curtailed; hubs may share one entity. Offered in both tariff modes; skipped entirely with the checkbox on |
@@ -172,11 +172,12 @@ Each hub has one store: Home Assistant's `Store` helper, a JSON file under `.sto
 
 - every cumulative total, hub-level splits and per-device counters alike
 - every energy sensor's snapshot
-- the in-progress window: its prices, lock state and grace state
+- the in-progress window: its prices, lock state, grace state and when it opened
+- when the last window closed
 
 The engine saves after every change worth surviving a restart (a window opening, a lock, a window closing), with a short delay so bursts of changes become one write. Home Assistant flushes pending writes at shutdown, and the engine writes immediately when it unloads, so a reload never races its own delayed save. Deleting the hub deletes its store.
 
-Everything in the store is keyed by IDs that never change. Home Assistant gives every hub a config entry id and every device a subentry id; renaming either changes only its title. Each total is keyed by the unique id of the entity that shows it, which starts with its owner's id (the config entry id for splits, the subentry id for device counters), and snapshots by the entity id of the sensor they belong to. Alongside the in-progress window, the store keeps a copy of the hub settings that shape windows: tariff type, tariffs, price sensors, window length, the "treat solar as free" checkbox and the curtailment source.
+Everything in the store is keyed by IDs that never change. Home Assistant gives every hub a config entry id and every device a subentry id; renaming either changes only its title. Each total is keyed by the unique id of the entity that shows it, which starts with its owner's id (the config entry id for splits, the subentry id for device counters), and snapshots by the entity id of the sensor they belong to. Alongside the in-progress window, the store keeps a copy of the hub settings that shape windows: tariff type, tariffs, price sensors, window length, the "treat solar as free" checkbox and the curtailment source. The stale-window warning time isn't one of them: it only decides when to warn, so changing it keeps the open window.
 
 The configuration can change while the hub is stopped, through an edit, or while it was disabled. On load, the engine reconciles the store with the current configuration:
 
@@ -188,11 +189,35 @@ The configuration can change while the hub is stopped, through an edit, or while
 | Device or grid sensor switched to another sensor | The new sensor has no snapshot, so its first reading sets a fresh baseline and contributes 0. The device keeps its totals |
 | Window-shaping hub settings changed (including tariff type) | The stored window is discarded and the first-window rules apply. Snapshots of unchanged sensors are kept, so no energy is lost: it lands in the new first window, just as downtime energy does after a restart. All totals are kept |
 
-A restored window's grace period counts as over, since its timer didn't survive the restart. Any tentative export price or curtailment state it holds locks immediately, and if a close was pending and both are now locked, the window closes. Anything still missing waits for a late arrival, exactly as after a normal grace period.
+A restored window keeps the time it opened, so a restart doesn't reset its stale-window countdown. A store from before that time was saved counts the window's age from the restart. A restored window's grace period counts as over, since its timer didn't survive the restart. Any tentative export price or curtailment state it holds locks immediately, and if a close was pending and both are now locked, the window closes. Anything still missing waits for a late arrival, exactly as after a normal grace period.
 
 ## Entities and aggregation
 
-**Hub-level**: the 8 energy-split sensors and 10 financial-split sensors, built each window from `Solar` = sum of every solar device's export delta, `BatteryCharge` / `BatteryDischarge` = summed across all battery devices, `GridImport` / `GridExport` read straight from the hub's own two sensors.
+**Hub-level**: up to 8 energy-split sensors and 10 financial-split sensors, built each window from `Solar` = sum of every solar device's export delta, `BatteryCharge` / `BatteryDischarge` = summed across all battery devices, `GridImport` / `GridExport` read straight from the hub's own two sensors.
+
+A split is only created once the hub has the devices it depends on, since without them it can only ever read 0:
+
+| Needs | Splits |
+| --- | --- |
+| Nothing | House energy usage, grid to house, grid import cost, grid export cost, house energy usage cost, grid to house cost |
+| A solar device | Solar to house, solar to grid, and their savings and profit |
+| A battery device | Grid to battery, battery to house, battery to grid, and their cost, savings and profit |
+| Both | Solar to battery and its cost |
+
+General devices don't feed the splits, so they never add any. Adding or removing a device reloads the hub, so its splits appear and disappear with it. On every setup, hub entities the hub no longer creates are removed from Home Assistant's entity registry. The engine still keeps every split's total in the store, so a split that comes back (the last solar device removed, then a new one added) carries on where it left off.
+
+**Diagnostics** (dynamic tariffs only): hub-level sensors in Home Assistant's diagnostic category, showing what the window engine is doing. They update whenever the window changes, not only at a window close:
+
+| Sensor | Shows |
+| --- | --- |
+| Window status | `no_window` (first start, waiting for an import price), `open`, `held_open` (a boundary arrived but a lock is missing) or `overdue` (open longer than the stale-window warning time). Held open wins over overdue, because it names the reason |
+| Window import price | The import price the open window values energy at |
+| Window export price | The open window's locked export price; unknown until it locks |
+| Window curtailment | The open window's locked curtailment state; unknown until it locks. Only with a curtailment source |
+| Window opened | When the open window opened, shown by Home Assistant as "x minutes ago" |
+| Last window closed | When the last window settled |
+
+Fixed-tariff hubs don't get them: their windows close on a timer, and their prices are the configured tariffs.
 
 **Device-level**: each device gets its own simple (not split-aware) counters. This is separate bookkeeping, not an input to the hub-level split math.
 
@@ -221,6 +246,14 @@ on_sensor_recovers(entity_id):
         clear the flag
 ```
 
+A dynamic window that stays open longer than the hub's stale-window warning time (default 120 minutes) logs one warning, and one info line when it finally closes. The window closes only when the import price changes, so a price sensor that is wrong or stuck would otherwise hold the first window open forever, silently, with every total at 0. The warning names the likely cause:
+
+- the import price hasn't changed since the window opened: check that it is the right sensor;
+- the window is held open, waiting for an export price or a curtailment state, naming the sensor it waits for;
+- no window has opened yet, because the import price sensor has never reported a usable price.
+
+A price can legitimately stay put for a while, for example around 0 on a day with a lot of solar. That is rare, and the warning only logs a line, so a false alarm costs nothing. Fixed windows close on their own timer and never warn.
+
 Config-flow validation is two cheap layers:
 
 1. Sensor pickers are restricted to `device_class: energy` entities where applicable, so most wrong-sensor mistakes are impossible to make rather than caught after the fact.
@@ -240,7 +273,7 @@ Development runs in VS Code against a project virtualenv and in-process tests; n
 - Environment: `.venv` in the project root, built with `uv` on Python 3.14 (`uv venv --python 3.14 .venv`, then `uv pip install --python .venv -r requirements-dev.txt`). Current Home Assistant requires Python 3.14.2+, and config subentries need Home Assistant 2025.3 or later. With an older Python, pip silently installs an old Home Assistant that lacks them, and the config flow fails to import.
 - Tests, two tiers: `test_calc.py` needs no Home Assistant and runs in milliseconds. The rest boot an in-process `hass` via `pytest-homeassistant-custom-component` and use `async_fire_time_changed` to skip ahead through timers: `test_window.py` (windows, prices, resilience, logging; plus lifecycle tests on a bare `WindowEngine`), `test_sensor.py` (entities, classes, devices), `test_config_flow.py` (setup, validation, reconfiguring hubs and devices) and `test_persistence.py` (restarts and the restore table). Most drive the integration through `tests/simulator.py`. Expected values are worked out by hand from this doc's formulas, so a failing test means the code disagrees with the plan.
 - CI: `.github/workflows/ci.yml` runs Ruff, the tests and the mutation check on every push, pull request and weekly, plus hassfest and HACS validation. A change is done when CI is green.
-- Releases: pushing a tag `vX.Y.Z` that matches `version` in `manifest.json` runs `.github/workflows/release.yml`: CI on that commit, the version check, then a GitHub release with generated notes (a suffixed tag becomes a pre-release). HACS offers releases as updates.
+- Releases: pushing a tag `vX.Y.Z` (or `vX.Y.Z-beta.N`) that matches `version` in `manifest.json` runs `.github/workflows/release.yml`: CI on that commit, the version check, a check that `CHANGELOG.md` has a `## [X.Y.Z]` section, then a GitHub release with that section as its notes. A beta tag becomes a pre-release, which HACS only offers with "Show beta versions" on; a final release is refused while its section still says Unreleased. HACS offers releases as updates and shows their notes.
 - Frozen dataclasses (`WindowEnergy`, `EnergySplits`, `FinancialSplits`) are immutable: compute into locals, then construct once with keyword arguments.
 
 | Kind | Convention |
@@ -262,3 +295,8 @@ Claude implements and maintains the whole project: the integration in `custom_co
 - Before acting on a proposed change, check it against this doc. Point out anything it contradicts or makes obsolete, including the reasoning behind earlier decisions, and settle that first.
 - Code-level follow-ups go in `# TODO:` comments at the spot, not in this doc.
 - Run the tests and read failures directly rather than asking for pasted output.
+- Claude commits, pushes and tags; the author decides when a version is finished. The scheme:
+  - The first push after a release starts the next version: the patch number for fixes only (0.2.1), the minor number when it adds features (0.3.0).
+  - Until the author gives the OK, that version is work in progress: every push carries the next beta, `X.Y.Z-beta.N` in `manifest.json`, and is tagged and published as a pre-release once its CI is green, so the author can try it in Home Assistant.
+  - Its `CHANGELOG.md` section, `## [X.Y.Z] - Unreleased`, is written for the integration's users and kept up to date with every beta.
+  - On the author's OK: the suffix comes off, the section gets its release date, and `X.Y.Z` is released.

@@ -23,6 +23,8 @@ CONF_EXPORT_TARIFF: Final = "export_tariff"          # fixed mode only
 CONF_WINDOW_MINUTES: Final = "window_minutes"        # fixed mode only
 CONF_IMPORT_PRICE_SENSOR: Final = "import_price_sensor"   # dynamic mode only
 CONF_EXPORT_PRICE_SENSOR: Final = "export_price_sensor"   # dynamic mode only
+# Dynamic mode only: warn when a window stays open longer than this.
+CONF_STALE_WINDOW_MINUTES: Final = "stale_window_minutes"
 CONF_TREAT_SOLAR_AS_FREE: Final = "treat_solar_as_free"
 # Optional; absent means never curtailed.
 CONF_CURTAILMENT_SOURCE: Final = "curtailment_source"
@@ -43,6 +45,16 @@ class TariffMode(StrEnum):
     FIXED = "fixed"
     DYNAMIC = "dynamic"
 # end TariffMode
+
+
+class WindowStatus(StrEnum):
+    """What the window engine is doing, for the hub's status sensor."""
+
+    NO_WINDOW = "no_window"  # first start, waiting for a real import price
+    OPEN = "open"
+    HELD_OPEN = "held_open"  # boundary reached, waiting for a lock
+    OVERDUE = "overdue"      # open longer than the hub's stale-window timeout
+# end WindowStatus
 
 
 class DeviceType(StrEnum):
@@ -69,15 +81,21 @@ SUBENTRY_TYPES: Final = (DeviceType.GENERAL, DeviceType.SOLAR, DeviceType.BATTER
 # updates still count for that window. See the plan's window-engine section.
 EXPORT_PRICE_GRACE_SECONDS: Final = 60
 
+# Dynamic mode: how long a window may stay open before a warning is logged,
+# for hubs that never set CONF_STALE_WINDOW_MINUTES (plan: logging).
+DEFAULT_STALE_WINDOW_MINUTES: Final = 120
+
 # Persistence (see the plan). Bump STORAGE_VERSION whenever the stored layout
 # changes, so an old file can be recognised and migrated. Saves wait
-# SAVE_DELAY_SECONDS so a burst of changes becomes one write.
+# SAVE_DELAY_SECONDS so a burst of changes becomes one write. A new field
+# that is read with a default when missing doesn't need a bump.
 STORAGE_VERSION: Final = 1
 SAVE_DELAY_SECONDS: Final = 10
 
 # The hub settings that shape windows. The store keeps a copy of them next to
 # the in-progress window; if they differ on load, that window is discarded
 # (plan: Persistence). Currency is not here: it can't change after setup.
+# Nor is CONF_STALE_WINDOW_MINUTES: it only decides when to warn.
 WINDOW_SETTINGS_KEYS: Final = (
     CONF_TARIFF_MODE,
     CONF_IMPORT_TARIFF,
@@ -115,6 +133,33 @@ FINANCIAL_SPLIT_KEYS: Final = (
     "battery_to_house_savings",
     "battery_to_grid_profit",
 )
+
+
+# Which device types a hub needs before a split can be anything but 0. A
+# split is only created once the hub has them (plan: entities).
+_SOLAR = frozenset({DeviceType.SOLAR})
+_BATTERY = frozenset({DeviceType.BATTERY})
+_BOTH = _SOLAR | _BATTERY
+SPLIT_REQUIRES: Final[dict[str, frozenset[DeviceType]]] = {
+    "house_energy_usage": frozenset(),
+    "solar_to_house": _SOLAR,
+    "solar_to_battery": _BOTH,
+    "grid_to_battery": _BATTERY,
+    "solar_to_grid": _SOLAR,
+    "grid_to_house": frozenset(),
+    "battery_to_house": _BATTERY,
+    "battery_to_grid": _BATTERY,
+    "grid_import_cost": frozenset(),
+    "grid_export_cost": frozenset(),
+    "house_energy_usage_cost": frozenset(),
+    "solar_to_house_savings": _SOLAR,
+    "solar_to_battery_cost": _BOTH,
+    "grid_to_battery_cost": _BATTERY,
+    "solar_to_grid_profit": _SOLAR,
+    "grid_to_house_cost": frozenset(),
+    "battery_to_house_savings": _BATTERY,
+    "battery_to_grid_profit": _BATTERY,
+}
 
 
 def unique_id(owner_id: str, key: str) -> str:

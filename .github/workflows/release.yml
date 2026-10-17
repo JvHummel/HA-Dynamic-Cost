@@ -1,8 +1,14 @@
 name: Release
 
-# Push a tag like v0.1.1 (matching "version" in manifest.json) to publish a
-# release. A tag with a suffix, like v0.2.0-beta.1, becomes a pre-release,
-# which HACS only offers to users who opted into betas.
+# Push a tag like v0.3.0 (matching "version" in manifest.json) to publish a
+# release. Work in progress is tagged as a beta, like v0.3.0-beta.1: that
+# becomes a pre-release, which HACS only offers to users who opted into betas.
+#
+# The release notes are that version's section of CHANGELOG.md
+# ("## [0.3.0] - Unreleased" while in progress, "## [0.3.0] - <date>" once
+# released), followed by GitHub's link to the full diff. A tag without a
+# section is refused, and so is a final release whose section still says
+# Unreleased, so nothing is released without proper notes.
 on:
   push:
     tags: ["v*"]
@@ -33,6 +39,27 @@ jobs:
             exit 1
           fi
 
+      - name: Take the release notes from CHANGELOG.md
+        run: |
+          # A beta (v0.3.0-beta.2) uses its version's section, which says
+          # "Unreleased" until the final release dates it.
+          version="${GITHUB_REF_NAME#v}"
+          base="${version%%-*}"
+          heading_line=$(grep -m1 -F "## [$base]" CHANGELOG.md || true)
+          awk -v heading="## [$base]" '
+            index($0, heading) == 1 { found = 1; next }
+            found && /^## \[/      { exit }
+            found                   { print }
+          ' CHANGELOG.md > release-notes.md
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "::error::CHANGELOG.md has no section for $base. Add a \"## [$base] - Unreleased\" section, commit, and tag that commit."
+            exit 1
+          fi
+          if [ "$version" = "$base" ] && echo "$heading_line" | grep -qi "unreleased"; then
+            echo "::error::CHANGELOG.md still calls $base Unreleased. Replace that with the release date, commit, and tag that commit."
+            exit 1
+          fi
+
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -41,5 +68,6 @@ jobs:
           case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" \
             --title "Dynamic Cost $GITHUB_REF_NAME" \
+            --notes-file release-notes.md \
             --generate-notes \
             $prerelease

@@ -8,7 +8,11 @@ lives in pytest's in-memory hass_storage in between.
 
 from __future__ import annotations
 
+import logging
+from datetime import timedelta
+
 import pytest
+from homeassistant.util import dt as dt_util
 
 from custom_components.dynamic_cost.const import (
     CONF_EXPORT_SENSOR,
@@ -24,6 +28,7 @@ from custom_components.dynamic_cost.const import (
 
 from .simulator import EXPORT_PRICE as SIM_EXPORT_PRICE
 from .simulator import GRID_EXPORT
+from .simulator import IMPORT_PRICE as SIM_IMPORT_PRICE
 
 SOLAR = "sensor.sim_solar"
 SOLAR_2 = "sensor.sim_solar_2"
@@ -108,6 +113,63 @@ async def test_restored_window_counts_its_grace_period_as_over(hass, simulator):
     assert simulator.get_total("solar_to_grid") == pytest.approx(2.0)
     assert simulator.get_total("solar_to_grid_profit") == pytest.approx(2.0 * 0.05)
 # end test_restored_window_counts_its_grace_period_as_over
+
+
+async def test_window_times_survive_restart(hass, simulator):
+    """The diagnostics show the same open and close times after a restart."""
+    await _hub_with_one_settled_window(simulator)
+    opened = simulator.hub_state("window_opened")
+    closed = simulator.hub_state("last_window_closed")
+    assert "unknown" not in (opened, closed)
+
+    await simulator.async_restart()
+
+    assert simulator.hub_state("window_opened") == opened
+    assert simulator.hub_state("last_window_closed") == closed
+# end test_window_times_survive_restart
+
+
+async def test_stale_countdown_continues_after_restart(
+    hass, simulator, hass_storage, caplog
+):
+    """A restart doesn't reset a window's age: one opened 119 minutes before
+    the restart warns a minute or two after it, not 120 minutes later."""
+    caplog.set_level(logging.INFO, logger="custom_components.dynamic_cost")
+    entry = await simulator.async_setup_hub()
+    await simulator.async_stop_hub()
+    window = hass_storage[f"{DOMAIN}.{entry.entry_id}"]["data"]["window"]
+    window["opened_at"] = (dt_util.utcnow() - timedelta(minutes=119)).isoformat()
+
+    await simulator.async_start_hub()
+    await simulator.async_wait(2 * 60)
+
+    warnings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.WARNING and SIM_IMPORT_PRICE in record.getMessage()
+    ]
+    assert len(warnings) == 1
+# end test_stale_countdown_continues_after_restart
+
+
+async def test_store_from_before_window_times_still_loads(
+    hass, simulator, hass_storage
+):
+    """A v0.1.0 store has no opened_at or last_closed_at: the window is still
+    restored, and its age counts from the restart."""
+    await _hub_with_one_settled_window(simulator)
+    await simulator.async_stop_hub()
+    data = hass_storage[f"{DOMAIN}.{simulator.entry.entry_id}"]["data"]
+    del data["window"]["opened_at"]
+    del data["last_closed_at"]
+    simulator.advance_meter(SOLAR, 1.0)
+
+    await simulator.async_start_hub()
+    assert simulator.hub_state("window_opened") not in ("unknown", None)
+    assert simulator.hub_state("last_window_closed") == "unknown"
+    await simulator.async_advance_window()           # the restored window settles
+    assert simulator.get_total("solar_to_house") == pytest.approx(3.0)
+# end test_store_from_before_window_times_still_loads
 
 
 async def test_renamed_device_keeps_its_totals(hass, simulator):
