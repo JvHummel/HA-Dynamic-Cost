@@ -235,6 +235,78 @@ async def test_counted_summaries_are_kept(hass, simulator, hass_storage):
 # end test_counted_summaries_are_kept
 
 
+def _as_legacy_store(data: dict, to_source_unit: float) -> None:
+    """Turn a stopped hub's store into one from before units were read: its
+    snapshots in the sensors' own unit, under the old key."""
+    data["snapshots"] = {
+        entity_id: kwh * to_source_unit
+        for entity_id, kwh in data.pop("snapshots_kwh").items()
+    }
+# end _as_legacy_store
+
+
+async def _wh_hub_with_one_settled_window(simulator) -> None:
+    """_hub_with_one_settled_window, with the solar meter reporting Wh."""
+    simulator.set_unit(SOLAR, "Wh")
+    await simulator.async_setup_hub(solar=[SOLAR])
+    await simulator.async_advance_window(import_price=0.30, export_price=0.05)
+    simulator.advance_meter(SOLAR, 2000.0)
+    await simulator.async_advance_window()
+# end _wh_hub_with_one_settled_window
+
+
+@pytest.mark.parametrize("window_kept", [True, False])
+async def test_store_from_before_units_carries_on(
+    hass, simulator, hass_storage, window_kept
+):
+    """A store from before units were read holds a Wh meter's snapshot in Wh.
+    The first reading converts it, so energy produced while Home Assistant
+    was down still counts: no 1000x jump, and not lost as a counter reset.
+    That holds when the open window is discarded on start, too: the old
+    snapshot is still the baseline of the new first window."""
+    await _wh_hub_with_one_settled_window(simulator)
+    simulator.advance_meter(SOLAR, 3000.0)   # 2 kWh counted so far
+    await simulator.async_stop_hub()
+    data = hass_storage[f"{DOMAIN}.{simulator.entry.entry_id}"]["data"]
+    _as_legacy_store(data, 1000.0)
+    if not window_kept:
+        data["window"] = None
+    # end if
+    simulator.advance_meter(SOLAR, 1000.0)   # produced while down
+
+    await simulator.async_start_hub()
+    await simulator.async_advance_window()
+
+    # The settled 2 kWh, 3 kWh that was still in the open window, 1 kWh downtime.
+    assert simulator.get_total("solar_production") == pytest.approx(6.0)
+# end test_store_from_before_units_carries_on
+
+
+async def test_unconverted_snapshot_survives_another_restart(
+    hass, simulator, hass_storage
+):
+    """A legacy snapshot whose sensor stays unavailable can't be converted
+    yet: it's saved as it was and converted once the sensor is back."""
+    await _wh_hub_with_one_settled_window(simulator)
+    await simulator.async_stop_hub()
+    _as_legacy_store(
+        hass_storage[f"{DOMAIN}.{simulator.entry.entry_id}"]["data"], 1000.0
+    )
+
+    simulator.set_unavailable(SOLAR)
+    await simulator.async_start_hub()
+    await simulator.async_advance_window()
+    await simulator.async_restart()
+    assert SOLAR in hass_storage[f"{DOMAIN}.{simulator.entry.entry_id}"]["data"][
+        "snapshots"
+    ]
+
+    simulator.advance_meter(SOLAR, 500.0)    # back at its total plus 500 Wh
+    await simulator.async_advance_window()
+    assert simulator.get_total("solar_production") == pytest.approx(2.5)
+# end test_unconverted_snapshot_survives_another_restart
+
+
 async def test_renamed_device_keeps_its_totals(hass, simulator):
     """Row: device renamed. Its subentry id is unchanged, so nothing changes."""
     await _hub_with_one_settled_window(simulator)

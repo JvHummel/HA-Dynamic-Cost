@@ -327,6 +327,82 @@ async def test_first_start_without_import_price_opens_no_window(hass, simulator)
 # end test_first_start_without_import_price_opens_no_window
 
 
+async def test_meter_in_wh_counts_in_kwh(hass, simulator):
+    """A meter reporting Wh is counted in kWh: 2000 Wh of solar is 2 kWh."""
+    simulator.set_unit(SOLAR, "Wh")
+    await simulator.async_setup_hub(solar=[SOLAR])
+    await _priced_window(simulator, 0.30, 0.05)
+
+    simulator.advance_meter(SOLAR, 2000.0)
+    await simulator.async_advance_window()
+
+    assert simulator.get_total("solar_to_house") == pytest.approx(2.0)
+    assert simulator.get_total("solar_to_house_savings") == pytest.approx(0.60)
+    assert simulator.get_total("solar_production") == pytest.approx(2.0)
+    assert simulator.get_total("export_energy", device="Solar 1") == pytest.approx(2.0)
+# end test_meter_in_wh_counts_in_kwh
+
+
+async def test_meter_switching_unit_keeps_counting(hass, simulator):
+    """A meter whose unit is changed from kWh to Wh (Home Assistant lets users
+    do that) carries on: 10 kWh then 10500 Wh is half a kWh, not a jump."""
+    await simulator.async_setup_hub()
+    await _priced_window(simulator, 0.20, 0.05)
+    simulator.set_meter(GRID_IMPORT, 10.0)
+    await simulator.async_advance_window()
+
+    simulator.set_unit(GRID_IMPORT, "Wh")
+    simulator.set_meter(GRID_IMPORT, 10500.0)
+    await simulator.async_advance_window()
+
+    assert simulator.get_total("grid_to_house") == pytest.approx(10.5)
+# end test_meter_switching_unit_keeps_counting
+
+
+async def test_non_energy_unit_counts_as_unavailable(hass, simulator, caplog):
+    """A meter reporting in W can't be counted: it sits out its windows with
+    one warning naming the unit, then catches up once it reports energy."""
+    caplog.set_level(logging.INFO, logger="custom_components.dynamic_cost")
+    await simulator.async_setup_hub(solar=[SOLAR])
+    await _priced_window(simulator, 0.30, 0.05)
+
+    simulator.set_unit(SOLAR, "W")
+    simulator.set_meter(SOLAR, 700.0)
+    for _ in range(2):
+        await simulator.async_advance_window()
+    # end for
+    assert simulator.get_total("solar_to_house") == pytest.approx(0.0)
+    warnings = [
+        record.getMessage() for record in caplog.records
+        if record.levelno == logging.WARNING and SOLAR in record.getMessage()
+    ]
+    assert len(warnings) == 1
+    assert "W" in warnings[0] and "energy unit" in warnings[0]
+
+    simulator.set_unit(SOLAR, "kWh")
+    simulator.set_meter(SOLAR, 3.0)
+    await simulator.async_advance_window()
+    assert simulator.get_total("solar_to_house") == pytest.approx(3.0)
+# end test_non_energy_unit_counts_as_unavailable
+
+
+async def test_prices_per_mwh_count_per_kwh(hass, simulator):
+    """Price sensors in EUR/MWh: 300 EUR/MWh values a kWh at 0.30."""
+    simulator.set_price_unit("EUR/MWh")
+    await simulator.async_setup_hub(solar=[SOLAR])
+    await _priced_window(simulator, 300.0, 50.0)
+
+    simulator.advance_meter(GRID_IMPORT, 2.0)
+    simulator.advance_meter(SOLAR, 1.0)
+    simulator.advance_meter(GRID_EXPORT, 1.0)
+    await simulator.async_advance_window(import_price=310.0)
+
+    assert simulator.get_total("grid_import_cost") == pytest.approx(0.60)
+    assert simulator.get_total("grid_export_profit") == pytest.approx(0.05)
+    assert float(simulator.hub_state("window_import_price")) == pytest.approx(0.31)
+# end test_prices_per_mwh_count_per_kwh
+
+
 async def test_unavailable_logging_is_edge_triggered(hass, simulator, caplog):
     """One warning when a sensor goes down, one info line when it recovers."""
     caplog.set_level(logging.INFO, logger="custom_components.dynamic_cost")

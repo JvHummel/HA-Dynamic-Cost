@@ -24,9 +24,65 @@ PKG = "custom_components/dynamic_cost/"
 WINDOW = PKG + "window.py"
 FLOW = PKG + "config_flow.py"
 SENSOR = PKG + "sensor.py"
+UNITS = PKG + "units.py"
 
 # name: (file, exact original text, replacement)
 MUTANTS: dict[str, tuple[str, str, str]] = {
+    "energy read without converting to kWh": (
+        WINDOW,
+        "kwh = units.energy_to_kwh(value, unit)",
+        "kwh = value",
+    ),
+    "price read without converting to per kWh": (
+        WINDOW,
+        "return units.price_per_kwh(value, self._unit(entity_id))",
+        "return value",
+    ),
+    "non-energy unit counted as kWh": (
+        UNITS,
+        "    elif unit not in EnergyConverter.VALID_UNITS:\n        return None",
+        "    elif unit not in EnergyConverter.VALID_UNITS:\n        return value",
+    ),
+    "no unit not taken as kWh": (
+        UNITS,
+        "    if unit is None:\n        return value\n    elif",
+        "    if unit is None:\n        return None\n    elif",
+    ),
+    "price per MWh taken as per kWh": (
+        UNITS,
+        "return value * EnergyConverter.convert(1.0, KWH, per)",
+        "return value",
+    ),
+    "legacy snapshot taken as kWh": (
+        WINDOW,
+        "tracked.snapshot = units.energy_to_kwh(tracked.legacy_snapshot, unit)",
+        "tracked.snapshot = tracked.legacy_snapshot",
+    ),
+    "legacy snapshots dropped on restore": (
+        WINDOW,
+        "self._sensors[entity_id].legacy_snapshot = snapshot",
+        "pass",
+    ),
+    "unconverted legacy snapshot not saved": (
+        WINDOW,
+        "if tracked.legacy_snapshot is not None\n            },",
+        "if False\n            },",
+    ),
+    "first window overwrites a legacy baseline": (
+        WINDOW,
+        "if tracked.snapshot is None and tracked.legacy_snapshot is None:",
+        "if tracked.snapshot is None:",
+    ),
+    "energy sensor unit not checked at setup": (
+        FLOW,
+        "elif field in ENERGY_SENSOR_FIELDS and not units.is_energy_unit(",
+        "elif False and not units.is_energy_unit(",
+    ),
+    "device sensors not unit-checked at setup": (
+        FLOW,
+        "    CONF_IMPORT_SENSOR,\n    CONF_EXPORT_SENSOR,\n)\n\nTARIFF_MODE",
+        ")\n\nTARIFF_MODE",
+    ),
     "negative delta not clamped (counter reset)": (
         WINDOW,
         "delta = max(0.0, reading - tracked.snapshot)",

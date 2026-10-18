@@ -21,10 +21,15 @@ from homeassistant.config_entries import (
     ConfigSubentryFlow,
     SubentryFlowResult,
 )
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import (
+    ATTR_UNIT_OF_MEASUREMENT,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import selector
 
+from . import units
 from .const import (
     CONF_CURRENCY,
     CONF_CURTAILMENT_SOURCE,
@@ -90,6 +95,15 @@ HUB_SENSOR_FIELDS = (
     CONF_EXPORT_PRICE_SENSOR,
 )
 
+# The fields, hub and device, that hold an energy sensor: _check_sensors
+# checks that those report in an energy unit.
+ENERGY_SENSOR_FIELDS = (
+    CONF_GRID_IMPORT_SENSOR,
+    CONF_GRID_EXPORT_SENSOR,
+    CONF_IMPORT_SENSOR,
+    CONF_EXPORT_SENSOR,
+)
+
 TARIFF_MODE_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[mode.value for mode in TariffMode],
@@ -108,8 +122,10 @@ def _check_sensors(
     sensors maps each form field to the entity id chosen in it. Each entity
     is read once. Returns (errors, unavailable):
       - errors: {field: "unknown_entity"} for an entity that doesn't exist,
-        {field: "not_numeric"} for one whose state isn't a number. Either one
-        blocks the step.
+        {field: "not_numeric"} for one whose state isn't a number,
+        {field: "not_energy_unit"} for an energy sensor whose unit can't be
+        converted to kWh (one with no unit counts as kWh). Each blocks the
+        step.
       - unavailable: entity ids that exist but read unavailable or unknown.
         Not an error -- the flow continues via a confirmation step.
     """
@@ -131,6 +147,10 @@ def _check_sensors(
             # end try
             if not is_number:
                 errors[field] = "not_numeric"
+            elif field in ENERGY_SENSOR_FIELDS and not units.is_energy_unit(
+                state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+            ):
+                errors[field] = "not_energy_unit"
             # end if
         # end if
     # end for

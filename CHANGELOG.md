@@ -26,6 +26,12 @@ the update.
   Home Assistant 2026.11, will.
 
 ### Changed
+- **Sensors in any energy unit.** Energy sensors are converted to kWh from
+  whatever unit they report in: Wh, kWh, MWh and so on. A solar inverter that
+  reports its production in Wh used to be counted as if it were kWh, a
+  thousand times too much. Price sensors in a currency per MWh are converted
+  to per kWh too. Setup now refuses an energy sensor whose unit isn't energy,
+  such as a power sensor in W.
 - **The window's export price and curtailment state show straight away.**
   They used to read *unknown* until they locked; now they show the tentative
   value meanwhile, and the lock sensors say which it is. What a window is
@@ -40,6 +46,10 @@ the update.
   around. Point any dashboard card that showed the old entity at the new
   one; Home Assistant may list leftover statistics for the old one under
   Developer Tools → Statistics, which you can delete.
+- Hubs carry on counting from where they were. Totals already counted from
+  a sensor in Wh or MWh are off by a factor 1000 and stay that way: they have
+  flowed into the splits, so the update can't repair them. To start those
+  totals over, remove the hub and add it again.
 
 ## [0.2.0] - 2026-10-17
 

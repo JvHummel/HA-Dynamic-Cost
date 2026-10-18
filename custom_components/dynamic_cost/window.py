@@ -14,7 +14,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import (
+    ATTR_UNIT_OF_MEASUREMENT,
+    STATE_OFF,
+    STATE_ON,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+)
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers.event import (
     async_call_later,
@@ -25,7 +31,7 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from . import calc
+from . import calc, units
 from .calc import WindowEnergy
 from .const import (
     CONF_CURTAILMENT_SOURCE,
@@ -87,10 +93,17 @@ class Device:
 
 @dataclass
 class TrackedSensor:
-    """One source sensor plus the snapshot of its last good reading."""
+    """One source sensor plus the snapshot of its last good reading.
+
+    snapshot is in kWh, whatever unit the sensor reports in. A store from
+    before units were read saved snapshots in the sensor's own unit without
+    naming it: legacy_snapshot holds such a value until the sensor's next
+    good reading, which says what unit it is in (plan: Units).
+    """
 
     entity_id: str
     snapshot: float | None = None
+    legacy_snapshot: float | None = None
     unavailable_logged: bool = False
 # end TrackedSensor
 
@@ -287,9 +300,7 @@ class WindowEngine:
         if self._fixed:
             self._open_window(self._config[CONF_IMPORT_TARIFF], first=True)
         else:
-            import_price = self._read_entity_state(
-                self._config[CONF_IMPORT_PRICE_SENSOR]
-            )
+            import_price = self._read_price(self._config[CONF_IMPORT_PRICE_SENSOR])
             if import_price is not None:
                 self._open_window(import_price, first=True)
             else:
@@ -345,9 +356,7 @@ class WindowEngine:
         if self._fixed:
             self._window.tentative_export_price = self._config[CONF_EXPORT_TARIFF]
         else:
-            export_price = self._read_entity_state(
-                self._config[CONF_EXPORT_PRICE_SENSOR]
-            )
+            export_price = self._read_price(self._config[CONF_EXPORT_PRICE_SENSOR])
             if export_price is not None:
                 self._window.tentative_export_price = export_price
             # end if
@@ -366,7 +375,9 @@ class WindowEngine:
 
         if first:
             for tracked in self._sensors.values():
-                if tracked.snapshot is None:
+                # A legacy snapshot is a baseline too, just in an unknown
+                # unit: the next boundary converts it and counts from it.
+                if tracked.snapshot is None and tracked.legacy_snapshot is None:
                     tracked.snapshot = self._read_sensor(tracked)
                 # end if
             # end for
@@ -499,7 +510,14 @@ class WindowEngine:
         # end if
         self._backfill_summaries()
 
+        # "snapshots" are in each sensor's own unit, from before units were
+        # read (or not converted since); "snapshots_kwh" are in kWh.
         for entity_id, snapshot in data.get("snapshots", {}).items():
+            if entity_id in self._sensors:
+                self._sensors[entity_id].legacy_snapshot = snapshot
+            # end if
+        # end for
+        for entity_id, snapshot in data.get("snapshots_kwh", {}).items():
             if entity_id in self._sensors:
                 self._sensors[entity_id].snapshot = snapshot
             # end if
@@ -646,10 +664,15 @@ class WindowEngine:
         return {
             "totals": dict(self._totals),
             "last_closed_at": last_closed_at,
-            "snapshots": {
+            "snapshots_kwh": {
                 entity_id: tracked.snapshot
                 for entity_id, tracked in self._sensors.items()
                 if tracked.snapshot is not None
+            },
+            "snapshots": {
+                entity_id: tracked.legacy_snapshot
+                for entity_id, tracked in self._sensors.items()
+                if tracked.legacy_snapshot is not None
             },
             "window": window,
             "settings": self._window_settings(),
@@ -715,16 +738,48 @@ class WindowEngine:
         # end if
     # end _read_on_off
 
+    def _unit(self, entity_id: str) -> str | None:
+        """The unit an entity reports in, or None if it names none."""
+        entity_state = self._hass.states.get(entity_id)
+        if entity_state is None:
+            return None
+        # end if
+        return entity_state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+    # end _unit
+
+    def _read_price(self, entity_id: str) -> float | None:
+        """Read a price sensor as a price per kWh, or None if unavailable."""
+        value = self._read_entity_state(entity_id)
+        if value is None:
+            return None
+        # end if
+        return units.price_per_kwh(value, self._unit(entity_id))
+    # end _read_price
+
     def _read_sensor(self, tracked: TrackedSensor) -> float | None:
-        """Read one sensor's current numeric value, or None if unavailable.
+        """Read one energy sensor in kWh, or None if unavailable.
+
+        A reading in a unit that isn't energy (W, say) can't be counted, so
+        it is unavailable too. A legacy snapshot is converted with the unit
+        of the first good reading: the unit the sensor was read in before.
 
         Logging is edge-triggered: a warning the first time a sensor goes
         unavailable and an info line when it recovers -- never once per
         window, or a sensor that stays down for hours floods the log.
         """
         value = self._read_entity_state(tracked.entity_id)
+        unit = self._unit(tracked.entity_id)
 
+        kwh = None
         if value is not None:
+            kwh = units.energy_to_kwh(value, unit)
+        # end if
+
+        if kwh is not None:
+            if tracked.legacy_snapshot is not None:
+                tracked.snapshot = units.energy_to_kwh(tracked.legacy_snapshot, unit)
+                tracked.legacy_snapshot = None
+            # end if
             if tracked.unavailable_logged:
                 _LOGGER.info(
                     "%s recovered after being unavailable",
@@ -735,16 +790,25 @@ class WindowEngine:
             # end if
         else:
             if not tracked.unavailable_logged:
-                _LOGGER.warning(
-                    "%s unavailable, treating as 0 kWh until it recovers",
-                    tracked.entity_id,
-                )
+                if value is None:
+                    _LOGGER.warning(
+                        "%s unavailable, treating as 0 kWh until it recovers",
+                        tracked.entity_id,
+                    )
+                else:
+                    _LOGGER.warning(
+                        "%s reports in %s, which is not an energy unit; "
+                        "treating as 0 kWh until it reports energy",
+                        tracked.entity_id,
+                        unit,
+                    )
+                # end if
 
                 tracked.unavailable_logged = True
             # end if
         # end if
 
-        return value
+        return kwh
     # end _read_sensor
 
     def _collect_deltas(self) -> dict[str, float]:
@@ -826,7 +890,7 @@ class WindowEngine:
         window is held open waiting on a lock, a new price only updates the
         price the next window opens with -- the latest price wins.
         """
-        price = self._read_entity_state(event.data["entity_id"])
+        price = self._read_price(event.data["entity_id"])
         if price is None:
             return
         # end if
@@ -858,7 +922,7 @@ class WindowEngine:
         late-arrival path that lets a recovering sensor unblock a window.
         Either way the diagnostics show the change.
         """
-        price = self._read_entity_state(event.data["entity_id"])
+        price = self._read_price(event.data["entity_id"])
         if price is None or not self._window_open:
             return
         # end if

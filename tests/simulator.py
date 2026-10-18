@@ -80,6 +80,9 @@ class Simulator:
         self._hass = hass
         self.entry: MockConfigEntry | None = None
         self._meters: dict[str, float] = {}
+        # Each meter's unit; kWh unless set_unit() says otherwise.
+        self._units: dict[str, str | None] = {}
+        self._price_unit = "EUR/kWh"
         self._import_price = 0.0
         self._export_price = 0.0
         self._tariff_mode = TariffMode.DYNAMIC
@@ -215,15 +218,32 @@ class Simulator:
     # -- driving the world -------------------------------------------------
 
     def set_meter(self, entity_id: str, total: float) -> None:
-        """Set a meter to a CUMULATIVE total (the way a real meter reports)."""
+        """Set a meter to a CUMULATIVE total (the way a real meter reports).
+
+        The total is in the meter's own unit: kWh, or what set_unit() set.
+        """
         self._meters[entity_id] = total
-        self._hass.states.async_set(
-            entity_id,
-            str(total),
-            {"unit_of_measurement": "kWh", "device_class": "energy",
-             "state_class": "total_increasing"},
-        )
+        attributes = {"device_class": "energy", "state_class": "total_increasing"}
+        unit = self._units.get(entity_id, "kWh")
+        if unit is not None:
+            attributes["unit_of_measurement"] = unit
+        # end if
+        self._hass.states.async_set(entity_id, str(total), attributes)
     # end set_meter
+
+    def set_unit(self, entity_id: str, unit: str | None) -> None:
+        """Make a meter report in another unit (None: no unit at all).
+
+        Only the unit changes: the meter's total stays the same number until
+        the next set_meter() or advance_meter(), which use the new unit.
+        """
+        self._units[entity_id] = unit
+    # end set_unit
+
+    def set_price_unit(self, unit: str) -> None:
+        """Make both price sensors report in this unit from the next price on."""
+        self._price_unit = unit
+    # end set_price_unit
 
     def advance_meter(self, entity_id: str, delta: float) -> None:
         """Add to a meter's total, i.e. simulate energy actually flowing."""
@@ -238,7 +258,7 @@ class Simulator:
             self._import_price = import_price
             self._hass.states.async_set(
                 IMPORT_PRICE, str(import_price),
-                {"unit_of_measurement": "EUR/kWh"},
+                {"unit_of_measurement": self._price_unit},
             )
         # end if
         if export_price is not None:
@@ -248,7 +268,7 @@ class Simulator:
             # relies on seeing that event to lock the new window's price.
             self._hass.states.async_set(
                 EXPORT_PRICE, str(export_price),
-                {"unit_of_measurement": "EUR/kWh"},
+                {"unit_of_measurement": self._price_unit},
                 force_update=True,
             )
         # end if

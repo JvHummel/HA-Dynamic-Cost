@@ -54,14 +54,17 @@ Switching tariff type keeps all records; only the currency is fixed.
   charged*, …), and for general devices also *Energy cost* at the import
   price.
 
-Totals survive restarts. Unavailable sensors are waited for rather than
-guessed; see the Resilience section of the plan.
+Sensors can report in any energy unit (Wh, kWh, MWh, …) and prices per
+kWh or per MWh: everything is converted to kWh. Totals survive restarts.
+Unavailable sensors are waited for rather than guessed; see the Resilience
+section of the plan.
 
 ## Layout
 
     custom_components/dynamic_cost/
       const.py        config keys, enums, entity keys
       calc.py         the energy and financial splits; no Home Assistant
+      units.py        converting energy to kWh and prices to per kWh
       window.py       tracking windows, snapshots, price locks, persistence
       sensor.py       the entities
       brand/          the icon Home Assistant shows (2026.3+)
@@ -70,6 +73,7 @@ guessed; see the Resilience section of the plan.
     tests/
       simulator.py         fake sensors and prices to drive a hub with
       test_calc.py         calculation engine; no Home Assistant needed
+      test_units.py        unit conversion; no running Home Assistant
       test_window.py       windows, prices, resilience, logging, lifecycle
       test_sensor.py       entities, units, devices
       test_config_flow.py  setup wizard, validation, reconfigure

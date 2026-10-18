@@ -51,6 +51,9 @@ SWITCH = "input_boolean.cf_curtailment"
 MISSING = "sensor.cf_does_not_exist"
 DOWN = "sensor.cf_unavailable"
 TEXT = "sensor.cf_not_a_number"
+WATTS = "sensor.cf_power"
+WH = "sensor.cf_meter_wh"
+NO_UNIT = "sensor.cf_meter_no_unit"
 
 GRID = {CONF_GRID_IMPORT_SENSOR: GRID_IN, CONF_GRID_EXPORT_SENSOR: GRID_OUT}
 PRICES = {
@@ -78,6 +81,12 @@ def world(hass):
     hass.states.async_set(SWITCH, "off")
     hass.states.async_set(DOWN, "unavailable", energy)
     hass.states.async_set(TEXT, "on", energy)
+    hass.states.async_set(WATTS, "750", {"unit_of_measurement": "W"})
+    hass.states.async_set(WH, "100000", {**energy, "unit_of_measurement": "Wh"})
+    hass.states.async_set(NO_UNIT, "100.0", {"device_class": "energy"})
+    hass.states.async_set(
+        f"{IMPORT_PRICE}_mwh", "250", {"unit_of_measurement": "EUR/MWh"}
+    )
     hass.config.currency = "USD"
 # end world
 
@@ -243,7 +252,12 @@ async def test_currency_defaults_to_home_assistant_currency(hass, no_setup):
 # -- validation --------------------------------------------------------------
 
 @pytest.mark.parametrize(
-    ("sensor", "error"), [(MISSING, "unknown_entity"), (TEXT, "not_numeric")]
+    ("sensor", "error"),
+    [
+        (MISSING, "unknown_entity"),
+        (TEXT, "not_numeric"),
+        (WATTS, "not_energy_unit"),
+    ],
 )
 async def test_bad_grid_sensor_blocks_step(hass, no_setup, sensor, error):
     """Hard errors keep the user on the form, attached to the offending field."""
@@ -255,6 +269,27 @@ async def test_bad_grid_sensor_blocks_step(hass, no_setup, sensor, error):
     assert result["step_id"] == "user"
     assert result["errors"] == {CONF_GRID_IMPORT_SENSOR: error}
 # end test_bad_grid_sensor_blocks_step
+
+
+@pytest.mark.parametrize("sensor", [WH, NO_UNIT])
+async def test_grid_sensor_in_any_energy_unit_is_accepted(hass, no_setup, sensor):
+    """Wh converts to kWh, and a sensor without a unit counts as kWh."""
+    result = await _submit(
+        hass, await _start(hass), {**GRID, CONF_GRID_IMPORT_SENSOR: sensor}
+    )
+    _assert_step(result, "tariff")
+# end test_grid_sensor_in_any_energy_unit_is_accepted
+
+
+async def test_price_sensor_unit_is_not_an_energy_unit(hass, no_setup):
+    """Price sensors aren't held to energy units: EUR/MWh is a fine price."""
+    result = await _submit(hass, await _start(hass), GRID)
+    result = await _submit(hass, result, {CONF_TARIFF_MODE: "dynamic"})
+    result = await _submit(
+        hass, result, {**PRICES, CONF_IMPORT_PRICE_SENSOR: f"{IMPORT_PRICE}_mwh"}
+    )
+    _assert_step(result, "options")
+# end test_price_sensor_unit_is_not_an_energy_unit
 
 
 async def test_unavailable_grid_sensor_asks_for_confirmation(hass, no_setup):
@@ -438,6 +473,11 @@ async def test_add_device_validates_its_sensor(hass, no_setup, hub):
     )
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {CONF_EXPORT_SENSOR: "unknown_entity"}
+
+    result = await _submit_device(
+        hass, result, {CONF_DEVICE_NAME: "Roof", CONF_EXPORT_SENSOR: WATTS}
+    )
+    assert result["errors"] == {CONF_EXPORT_SENSOR: "not_energy_unit"}
 
     result = await _submit_device(
         hass, result, {CONF_DEVICE_NAME: "Roof", CONF_EXPORT_SENSOR: DOWN}

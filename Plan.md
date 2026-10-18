@@ -158,6 +158,13 @@ The curtailment signal uses the same mechanism as export price: read tentatively
 
 When a window closes, the engine passes `TreatSolarAsFree = hub checkbox OR locked curtailment state` to the calculation engine.
 
+## Units
+
+The engine counts energy in kWh and values it per kWh, whatever units the source sensors report in. Every reading is converted with the unit the sensor reports alongside it, using Home Assistant's own energy converter, so the calculation engine only ever sees kWh and prices per kWh:
+
+- **Energy sensors** in any energy unit Home Assistant knows (Wh, kWh, MWh, MJ, GJ, …) are converted to kWh. A Wh meter is common: solar inverters often report lifetime production in Wh. Snapshots are kept in kWh, so a sensor whose unit changes (Home Assistant lets users pick another display unit for an energy sensor) carries on without a jump. A sensor without a unit counts as kWh. A reading in a unit that isn't energy, such as a power sensor in W, can't be counted, and is treated as an unavailable reading.
+- **Price sensors** are converted by the energy unit after the last slash: 120 EUR/MWh is 0.12 per kWh. A price without a unit, or without an energy unit after the slash, counts as per kWh. The currency part is never converted: the hub's currency is chosen at setup, and a sensor in cents can't be told apart from one in euros reliably.
+
 ## Resilience
 
 One rule covers every failure mode here: never guess a value — wait for real data instead.
@@ -165,6 +172,7 @@ One rule covers every failure mode here: never guess a value — wait for real d
 | Signal | Unavailable behavior |
 | --- | --- |
 | Any energy sensor (grid or per-device) | Contributes 0 to this window's delta; its snapshot is **not** advanced, so the next successful read is compared against the last known good value, however many windows it took to recover |
+| Energy sensor reporting in a unit that isn't energy (W, say) | Treated exactly like unavailable, with its own warning naming the unit, until it reports energy again |
 | Energy sensor with no snapshot yet | Its first successful reading only sets the baseline and contributes 0. That happens when it was unavailable as the first window opened, or when a device has just been added |
 | Energy sensor reads lower than its snapshot | Treated as a counter reset (e.g. a daily-reset production meter): delta counts as 0 and the snapshot advances to the new reading. A reset is a discontinuity, not timing skew, so unlike jitter it never self-corrects |
 | Import price sensor | Treated as "no change" — the current window simply stays open |
@@ -182,7 +190,7 @@ Restarts follow the same rule. Sensor snapshots are persisted along with the res
 Each hub has one store: Home Assistant's `Store` helper, a JSON file under `.storage/` named after the hub's config entry id. The window engine owns it and is the single source of truth. It holds:
 
 - every cumulative total, hub-level splits and per-device counters alike
-- every energy sensor's snapshot
+- every energy sensor's snapshot, in kWh
 - the in-progress window: its prices, lock state, grace state and when it opened
 - when the last window closed
 
@@ -198,6 +206,7 @@ The configuration can change while the hub is stopped, through an edit, or while
 | Device added | No stored data: its counters start at 0 and its first reading sets the baseline |
 | Device removed | Its stored totals and snapshots are dropped |
 | Device or grid sensor switched to another sensor | The new sensor has no snapshot, so its first reading sets a fresh baseline and contributes 0. The device keeps its totals |
+| Store from before units were read | Its snapshots are in each sensor's own unit, which it didn't save. Each is converted with the unit of that sensor's first good reading, and kept as it was until then, through any number of restarts. Energy that flowed while Home Assistant was down still counts, and a restored or discarded window makes no difference: the old snapshot stays the baseline |
 | Store from before the summaries existed | Summaries are worked out once from the split totals: exactly for money, and for energy from the flows each meter splits into. A store that has any summary keeps what was counted |
 | Window-shaping hub settings changed (including tariff type) | The stored window is discarded and the first-window rules apply. Snapshots of unchanged sensors are kept, so no energy is lost: it lands in the new first window, just as downtime energy does after a restart. All totals are kept |
 
@@ -284,6 +293,7 @@ Config-flow validation is two cheap layers:
 2. A one-time live read of every chosen energy and price sensor at setup:
    - An entity ID that doesn't exist at all is a hard error (`unknown_entity`), since that's unambiguously a typo.
    - An entity whose state isn't a number is a hard error (`not_numeric`): it's the wrong kind of entity.
+   - An energy sensor whose unit isn't an energy unit is a hard error (`not_energy_unit`): a power sensor in W, for example, can't be counted (see Units). Price sensors aren't checked for units.
    - An entity that exists but reads unavailable or unknown at that moment only gets a soft warning, since a briefly-unavailable sensor isn't necessarily misconfigured. Home Assistant form errors always block submission, so the warning is a separate confirmation step that names the sensor and lets the user continue anyway.
 
    Hard errors block finishing setup until the field is corrected.
@@ -295,7 +305,7 @@ Development runs in VS Code against a project virtualenv and in-process tests; n
 - Editor: Code OSS with the Python and Ruff extensions. Set `"python.analysis.typeCheckingMode": "standard"` so Pylance flags type mismatches while typing — annotations are not enforced at runtime.
 - Terminal: VS Code's terminal profile is bash. In fish, activate with `source .venv/bin/activate.fish` instead.
 - Environment: `.venv` in the project root, built with `uv` on Python 3.14 (`uv venv --python 3.14 .venv`, then `uv pip install --python .venv -r requirements-dev.txt`). Current Home Assistant requires Python 3.14.2+, and config subentries need Home Assistant 2025.3 or later. With an older Python, pip silently installs an old Home Assistant that lacks them, and the config flow fails to import.
-- Tests, two tiers: `test_calc.py` needs no Home Assistant and runs in milliseconds. The rest boot an in-process `hass` via `pytest-homeassistant-custom-component` and use `async_fire_time_changed` to skip ahead through timers: `test_window.py` (windows, prices, resilience, logging; plus lifecycle tests on a bare `WindowEngine`), `test_sensor.py` (entities, classes, devices), `test_config_flow.py` (setup, validation, reconfiguring hubs and devices) and `test_persistence.py` (restarts and the restore table). Most drive the integration through `tests/simulator.py`. Expected values are worked out by hand from this doc's formulas, so a failing test means the code disagrees with the plan.
+- Tests, two tiers: `test_calc.py` and `test_units.py` need no running Home Assistant and run in milliseconds. The rest boot an in-process `hass` via `pytest-homeassistant-custom-component` and use `async_fire_time_changed` to skip ahead through timers: `test_window.py` (windows, prices, resilience, logging; plus lifecycle tests on a bare `WindowEngine`), `test_sensor.py` (entities, classes, devices), `test_config_flow.py` (setup, validation, reconfiguring hubs and devices) and `test_persistence.py` (restarts and the restore table). Most drive the integration through `tests/simulator.py`. Expected values are worked out by hand from this doc's formulas, so a failing test means the code disagrees with the plan.
 - CI: `.github/workflows/ci.yml` runs Ruff, the tests and the mutation check on every push, pull request and weekly, plus hassfest and HACS validation. A change is done when CI is green.
 - Releases: pushing a tag `vX.Y.Z` (or `vX.Y.Z-beta.N`) that matches `version` in `manifest.json` runs `.github/workflows/release.yml`: CI on that commit, the version check, a check that `CHANGELOG.md` has a `## [X.Y.Z]` section, then a GitHub release with that section as its notes. A beta tag becomes a pre-release, which HACS only offers with "Show beta versions" on; a final release is refused while its section still says Unreleased. HACS offers releases as updates and shows their notes.
 - Icon: drawn as SVG in `artwork/` (midnight purple `#2D1660` for light backgrounds; lavender `#C8B9FF` with an amber `#F5B942` price dot for dark ones), rendered into `custom_components/dynamic_cost/brand/` by `scripts/render_brand.py`. Home Assistant 2026.3+ shows those PNGs; standalone HACS doesn't, Marketplace (Home Assistant 2026.11) does.
