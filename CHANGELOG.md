@@ -4,7 +4,7 @@ Every release of Dynamic Cost, newest first. Each version's section is
 published as the release notes on GitHub, which HACS shows when it offers
 the update.
 
-## [0.3.0] - Unreleased
+## [0.3.0] - 2026-10-26
 
 ### Added
 - **Summaries.** Per source, what moved and what it cost or earned in all,
