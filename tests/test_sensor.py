@@ -53,6 +53,7 @@ WITH_BATTERY = {
     "grid_to_battery", "battery_to_house", "battery_to_grid",
     "grid_to_battery_cost", "battery_to_house_savings", "battery_to_grid_profit",
     "battery_charged", "battery_discharged", "battery_net_savings",
+    "battery_energy_cost",      # a diagnostic, in either tariff mode
 }
 WITH_BOTH = {"solar_to_battery", "solar_to_battery_cost"}
 DIAGNOSTICS = {
@@ -211,6 +212,21 @@ async def test_diagnostics_only_for_dynamic_hubs(
         assert registered.entity_category == "diagnostic", key
     # end for
 # end test_diagnostics_only_for_dynamic_hubs
+
+
+@pytest.mark.parametrize("tariff_mode", list(TariffMode))
+async def test_battery_energy_cost_in_both_tariff_modes(hass, simulator, tariff_mode):
+    """Battery energy cost is a diagnostic on any hub with a battery, unknown
+    until the battery has been charged."""
+    await simulator.async_setup_hub(
+        batteries=[(CHARGE, DISCHARGE, 5.0)], tariff_mode=tariff_mode
+    )
+    entity_id = simulator.entity_id_for("battery_energy_cost")
+    assert entity_id is not None
+    assert er.async_get(hass).async_get(entity_id).entity_category == "diagnostic"
+    assert hass.states.get(entity_id).state == "unknown"
+    assert hass.states.get(entity_id).attributes["unit_of_measurement"] == "EUR/kWh"
+# end test_battery_energy_cost_in_both_tariff_modes
 
 
 async def test_switching_to_fixed_removes_diagnostics(hass, simulator):

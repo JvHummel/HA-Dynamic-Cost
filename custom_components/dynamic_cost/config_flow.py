@@ -31,6 +31,7 @@ from homeassistant.helpers import selector
 
 from . import units
 from .const import (
+    CONF_CAPACITY,
     CONF_CURRENCY,
     CONF_CURTAILMENT_SOURCE,
     CONF_DEVICE_NAME,
@@ -96,12 +97,45 @@ HUB_SENSOR_FIELDS = (
 )
 
 # The fields, hub and device, that hold an energy sensor: _check_sensors
-# checks that those report in an energy unit.
+# checks that those report in an energy unit. A battery's capacity is one
+# when it names an entity.
 ENERGY_SENSOR_FIELDS = (
     CONF_GRID_IMPORT_SENSOR,
     CONF_GRID_EXPORT_SENSOR,
     CONF_IMPORT_SENSOR,
     CONF_EXPORT_SENSOR,
+    CONF_CAPACITY,
+)
+
+# A battery's usable capacity: one field that takes either a number in kWh
+# or an entity reporting it (plan: config flow, usable capacity). Whichever
+# is chosen is saved as is: a number, or an entity id. The choices are plain
+# selector configs, not selector objects: ChooseSelector validates a value by
+# building each choice's selector from its config.
+CAPACITY_SELECTOR = selector.ChooseSelector(
+    selector.ChooseSelectorConfig(
+        choices={
+            "number": {
+                "selector": {
+                    "number": {
+                        "mode": "box",
+                        "min": 0.1,
+                        "step": "any",
+                        "unit_of_measurement": "kWh",
+                    }
+                }
+            },
+            "entity": {
+                "selector": {
+                    "entity": {
+                        "domain": "sensor",
+                        "device_class": ["energy_storage", "energy"],
+                    }
+                }
+            },
+        },
+        translation_key="capacity",
+    )
 )
 
 TARIFF_MODE_SELECTOR = selector.SelectSelector(
@@ -448,11 +482,13 @@ class DynamicCostConfigFlow(ConfigFlow, domain=DOMAIN):
 class _DeviceSubentryFlow(ConfigSubentryFlow):
     """Shared add/reconfigure flow for one device type.
 
-    Subclasses only list their sensor fields. Adding and reconfiguring use
-    the same form and validation; the device type itself can't change.
+    Subclasses list their sensor fields, and batteries also ask for their
+    usable capacity. Adding and reconfiguring use the same form and
+    validation; the device type itself can't change.
     """
 
     SENSOR_FIELDS: tuple[str, ...] = ()
+    HAS_CAPACITY = False
 
     def __init__(self) -> None:
         self._answers: dict[str, Any] = {}
@@ -466,6 +502,9 @@ class _DeviceSubentryFlow(ConfigSubentryFlow):
         for field in self.SENSOR_FIELDS:
             fields[vol.Required(field)] = ENERGY_SENSOR_SELECTOR
         # end for
+        if self.HAS_CAPACITY:
+            fields[vol.Required(CONF_CAPACITY)] = CAPACITY_SELECTOR
+        # end if
         return vol.Schema(fields)
     # end _schema
 
@@ -478,9 +517,12 @@ class _DeviceSubentryFlow(ConfigSubentryFlow):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            errors, unavailable = _check_sensors(
-                self.hass, {field: user_input[field] for field in self.SENSOR_FIELDS}
-            )
+            sensors = {field: user_input[field] for field in self.SENSOR_FIELDS}
+            # A capacity given as an entity is read like any other sensor.
+            if isinstance(user_input.get(CONF_CAPACITY), str):
+                sensors[CONF_CAPACITY] = user_input[CONF_CAPACITY]
+            # end if
+            errors, unavailable = _check_sensors(self.hass, sensors)
             if not errors:
                 self._answers = dict(user_input)
                 if unavailable:
@@ -565,7 +607,9 @@ class SolarSubentryFlow(_DeviceSubentryFlow):
 
 
 class BatterySubentryFlow(_DeviceSubentryFlow):
-    """Add a battery: a charge sensor and a discharge sensor."""
+    """Add a battery: a charge sensor, a discharge sensor, and its usable
+    capacity."""
 
     SENSOR_FIELDS = (CONF_IMPORT_SENSOR, CONF_EXPORT_SENSOR)
+    HAS_CAPACITY = True
 # end BatterySubentryFlow

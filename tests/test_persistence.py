@@ -307,6 +307,56 @@ async def test_unconverted_snapshot_survives_another_restart(
 # end test_unconverted_snapshot_survives_another_restart
 
 
+CHARGE = "sensor.sim_charge"
+DISCHARGE = "sensor.sim_discharge"
+
+
+async def _hub_with_a_charged_battery(simulator) -> None:
+    """A hub whose battery holds 4 kWh of solar, charged at export price 0.05."""
+    await simulator.async_setup_hub(
+        solar=[SOLAR], batteries=[(CHARGE, DISCHARGE, 10.0)]
+    )
+    await simulator.async_advance_window(import_price=0.30, export_price=0.05)
+    simulator.advance_meter(SOLAR, 4.0)
+    simulator.advance_meter(CHARGE, 4.0)
+    await simulator.async_advance_window(import_price=0.40)
+# end _hub_with_a_charged_battery
+
+
+@pytest.mark.parametrize(("pool_kept", "rate"), [(True, 0.05), (False, 0.40)])
+async def test_battery_pool_survives_restart(
+    hass, simulator, hass_storage, pool_kept, rate
+):
+    """What the battery's energy cost survives a restart. A store from before
+    the pool existed starts with an empty one: the battery's energy then
+    counts at the import price (0.40) until fresh charging fills it."""
+    await _hub_with_a_charged_battery(simulator)
+    await simulator.async_stop_hub()
+    if not pool_kept:
+        del hass_storage[f"{DOMAIN}.{simulator.entry.entry_id}"]["data"]["battery_pool"]
+    # end if
+    await simulator.async_start_hub()
+
+    simulator.advance_meter(DISCHARGE, 2.0)          # runs the house
+    await simulator.async_advance_window()
+
+    assert simulator.get_total("house_energy_usage_cost") == pytest.approx(2 * rate)
+# end test_battery_pool_survives_restart
+
+
+async def test_battery_pool_dropped_with_the_last_battery(
+    hass, simulator, hass_storage
+):
+    """A hub without batteries has nothing to discharge its pool: it goes."""
+    await _hub_with_a_charged_battery(simulator)
+    await simulator.async_remove_device("Battery 1")
+    await simulator.async_advance_window()           # saves the store again
+
+    pool = hass_storage[f"{DOMAIN}.{simulator.entry.entry_id}"]["data"]["battery_pool"]
+    assert pool == {"kwh": 0.0, "cost": 0.0}
+# end test_battery_pool_dropped_with_the_last_battery
+
+
 async def test_renamed_device_keeps_its_totals(hass, simulator):
     """Row: device renamed. Its subentry id is unchanged, so nothing changes."""
     await _hub_with_one_settled_window(simulator)

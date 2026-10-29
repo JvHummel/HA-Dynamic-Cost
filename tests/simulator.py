@@ -44,6 +44,7 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.dynamic_cost.const import (
+    CONF_CAPACITY,
     CONF_CURRENCY,
     CONF_CURTAILMENT_SOURCE,
     CONF_DEVICE_NAME,
@@ -95,7 +96,7 @@ class Simulator:
         self,
         *,
         solar: list[str] | None = None,
-        batteries: list[tuple[str, str]] | None = None,
+        batteries: list[tuple[str, str] | tuple[str, str, float | str]] | None = None,
         general: list[str] | None = None,
         treat_solar_as_free: bool = False,
         curtailment: bool = False,
@@ -110,8 +111,10 @@ class Simulator:
         """Create a hub config entry plus device subentries, and load it.
 
         solar and general are lists of sensor ids; batteries is a list of
-        (charge sensor, discharge sensor) pairs. Each becomes one subentry,
-        exactly as if the user had clicked "Add device" in the UI.
+        (charge sensor, discharge sensor) pairs, or (charge, discharge,
+        capacity) where capacity is kWh or an entity id. A pair is a battery
+        set up before capacity existed. Each becomes one subentry, exactly as
+        if the user had clicked "Add device" in the UI.
 
         import_tariff, export_tariff and window_minutes only matter in
         fixed tariff mode. stale_window_minutes only matters in dynamic mode;
@@ -150,7 +153,7 @@ class Simulator:
 
         for entity_id in (solar or []) + (general or []):
             self.set_meter(entity_id, 0.0)
-        for charge, discharge in batteries or []:
+        for charge, discharge, *_ in batteries or []:
             self.set_meter(charge, 0.0)
             self.set_meter(discharge, 0.0)
 
@@ -159,10 +162,15 @@ class Simulator:
             subentries.append(self._subentry(
                 DeviceType.SOLAR, f"Solar {i}", {CONF_EXPORT_SENSOR: entity_id}
             ))
-        for i, (charge, discharge) in enumerate(batteries or [], start=1):
+        for i, (charge, discharge, *capacity) in enumerate(batteries or [], start=1):
+            sensors: dict[str, Any] = {
+                CONF_IMPORT_SENSOR: charge, CONF_EXPORT_SENSOR: discharge
+            }
+            if capacity:
+                sensors[CONF_CAPACITY] = capacity[0]
+            # end if
             subentries.append(self._subentry(
-                DeviceType.BATTERY, f"Battery {i}",
-                {CONF_IMPORT_SENSOR: charge, CONF_EXPORT_SENSOR: discharge},
+                DeviceType.BATTERY, f"Battery {i}", sensors
             ))
         # end for
         for i, entity_id in enumerate(general or [], start=1):

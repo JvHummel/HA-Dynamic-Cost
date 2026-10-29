@@ -176,6 +176,20 @@ def _diagnostics(currency: str, curtailment: bool) -> list[DiagnosticDescription
 # end _diagnostics
 
 
+def _battery_energy_cost(currency: str) -> DiagnosticDescription:
+    """The battery pool's average cost per kWh, for hubs with a battery in
+    either tariff mode (plan: entities, diagnostics)."""
+    return DiagnosticDescription(
+        key="battery_energy_cost",
+        translation_key="battery_energy_cost",
+        native_unit_of_measurement=f"{currency}/{UnitOfEnergy.KILO_WATT_HOUR}",
+        suggested_display_precision=5,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda engine: engine.battery_energy_cost,
+    )
+# end _battery_energy_cost
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: DynamicCostConfigEntry,
@@ -216,6 +230,11 @@ async def async_setup_entry(
             DynamicCostDiagnosticSensor(entry, description)
             for description in _diagnostics(currency, engine.tracks_curtailment)
         ]
+    # end if
+    if DeviceType.BATTERY in device_types:
+        hub_entities.append(
+            DynamicCostDiagnosticSensor(entry, _battery_energy_cost(currency))
+        )
     # end if
 
     _remove_stale_hub_entities(hass, entry, {e.unique_id for e in hub_entities})

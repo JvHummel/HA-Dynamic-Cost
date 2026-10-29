@@ -22,6 +22,9 @@ Plain arithmetic, decoupled from Home Assistant entirely — testable with hand-
 //   ImportPrice, ExportPrice                                         (currency/kWh)
 //   TreatSolarAsFree   (bool: hub checkbox OR curtailment locked on for this
 //                       window; decided by the window engine)
+//   Pool               (the energy in the hub's batteries and what it cost,
+//                       carried from window to window; see below)
+//   Capacity           (the batteries' combined usable capacity, kWh, or unknown)
 
 // -- energy splits --
 HouseEnergyUsage = Solar + GridImport + BatteryDischarge - BatteryCharge - GridExport
@@ -43,11 +46,25 @@ SolarToGridProfit     = SolarToGrid * ExportPrice
 GridToHouseCost       = GridToHouse * ImportPrice
 BatteryToGridProfit   = BatteryToGrid * ExportPrice
 
-SolarToBatteryCost:
-    if TreatSolarAsFree:  return 0
-    return SolarToBattery * ExportPrice
+SolarRate = 0 if TreatSolarAsFree else ExportPrice   // what a kWh of solar costs
+SolarToBatteryCost = SolarToBattery * SolarRate
 
-HouseEnergyUsageCost = GridToHouseCost + SolarToHouseSavings + BatteryToHouseSavings
+// -- battery pool: what the energy in the batteries cost --
+Pool.kWh  += GridToBattery + SolarToBattery
+Pool.Cost += GridToBatteryCost + SolarToBatteryCost
+Avg        = Pool.Cost / Pool.kWh
+D          = BatteryToHouse + BatteryToGrid
+Known      = MIN(D, Pool.kWh)       // more out than the pool holds: energy from before tracking
+BatteryRate = (Known * Avg + (D - Known) * ImportPrice) / D   // what a kWh from the battery cost
+Pool.kWh  -= Known
+Pool.Cost -= Known * Avg
+if Capacity is known and Pool.kWh > Capacity:
+    Pool.kWh = Capacity             // Pool.Cost stays: see below
+
+// -- what the house's energy cost --
+HouseEnergyUsageCost = GridToHouse * ImportPrice
+                     + SolarToHouse * SolarRate
+                     + BatteryToHouse * BatteryRate
 
 // -- summaries: per source, what moved and what it cost or earned in all --
 GridImportEnergy  = GridImport            GridExportEnergy  = GridExport
@@ -61,14 +78,20 @@ BatteryNetSavings = BatteryToHouseSavings + BatteryToGridProfit
 
 Solar's value is what it earned directly. Solar stored in the battery is the battery's to earn back, so the battery's net savings pay for it, at the export price it could have fetched (zero when solar counts as free).
 
-`SolarToBatteryCost` is an opportunity cost: solar stored in the battery could have been exported instead, so it is valued at the export price. It is deliberately not clamped, so a negative export price gives a negative cost, because storing that energy avoided paying to export it. It is zero when solar counts as free. There are two ways that can happen:
+Solar used at home is never free by default: it could have been exported instead, so what it costs is the export price it would have fetched. That opportunity cost is `SolarRate`. It values solar stored in the battery (`SolarToBatteryCost`) and solar used by the house (`HouseEnergyUsageCost`, and through it the general devices). It is deliberately not clamped, so a negative export price gives a negative cost, because using that energy avoided paying to export it. *Solar to house savings* and *Solar to grid profit* don't use it: they are what solar saved and earned, not what it cost.
 
-- **The user never counts it.** A hub checkbox, "Treat solar to battery energy as free".
-- **The installation was curtailed during the window.** Curtailed PV could not have exported that energy, so storing it cost nothing. The integration doesn't guess when curtailment is happening. The user may not know either, and it isn't always driven by negative prices; a grid operator can remotely curtail installations to balance the grid, for example. Instead, each hub can name a curtailment source: an entity the user's own automations switch on and off, fed from whatever API or logic tells them curtailment is active. This applies to fixed and dynamic tariffs alike, since operators can curtail regardless of contract type. Hubs with the checkbox on don't track curtailment, since solar already counts as free there.
+`SolarRate` is zero when solar counts as free. There are two ways that can happen:
+
+- **The user never counts it.** A hub checkbox, "Treat solar as free".
+- **The installation was curtailed during the window.** Curtailed PV could not have exported that energy, so using or storing it cost nothing. The integration doesn't guess when curtailment is happening. The user may not know either, and it isn't always driven by negative prices; a grid operator can remotely curtail installations to balance the grid, for example. Instead, each hub can name a curtailment source: an entity the user's own automations switch on and off, fed from whatever API or logic tells them curtailment is active. This applies to fixed and dynamic tariffs alike, since operators can curtail regardless of contract type. Hubs with the checkbox on don't track curtailment, since solar already counts as free there.
 
 The calculation engine only sees the combined `TreatSolarAsFree`; which of the two caused it is the window engine's business.
 
-`HouseEnergyUsageCost` is a blended figure — cash actually paid to the grid plus the notional value of the solar and battery portions — not a net "after offsets" cost, so it can read as large even in a window where almost nothing was paid to the grid.
+`HouseEnergyUsageCost` is what the house's energy really cost, part by part. Grid energy cost the import price. Solar energy cost the income given up by not exporting it: the export price, or nothing when solar counts as free, and below zero when exporting would have cost money. Battery energy cost what charging it cost. With no solar or battery, it equals `GridToHouseCost`.
+
+The battery pool tracks that last part: how many kWh are in the hub's batteries (all battery devices combined, like the splits) and what they cost to put there. Energy comes out at the pool's average cost. More coming out than the pool holds is energy that was already in the battery before tracking started, and is valued at the import price. A battery returns less than it stores, so without a ceiling the pool would fill up with lost energy carrying old prices, and its average would lag further and further behind. The batteries' usable capacity is that ceiling: anything above it can only be losses, so its kWh are dropped while its cost stays, and the losses are paid for by the energy that does come out. With no capacity known, there is no ceiling.
+
+`BatteryRate` only matters for `HouseEnergyUsageCost` and the general devices' value; the battery's own splits and summaries stay as they are.
 
 Keep the `MAX(0, …)` clamps. They do more than absorb meter jitter: a negative intermediate result means none of that source went to that destination, and the clamp turns it into zero. Without them, a night where the battery discharges 5 kWh, the house uses 2 and 3 are exported reports 3 kWh solar to grid and 0 kWh battery to grid. `test_calc.py` should pin this case.
 
@@ -84,7 +107,7 @@ Home Assistant forms can't show or hide a field based on another field in the sa
 | 2 | Tariff mode | Fixed or Dynamic — branches the next step |
 | 2a (Fixed) | Import tariff, export tariff, tracking window (minutes) | Tariffs in currency/kWh; window duration drives the fixed timer |
 | 2b (Dynamic) | Import price sensor, export price sensor, stale-window warning (minutes) | Window boundaries follow the import price sensor. The warning time defaults to 120 minutes; see Logging |
-| 3 | Treat solar to battery energy as free | Checkbox, off by default |
+| 3 | Treat solar as free | Checkbox, off by default. Makes `SolarRate` 0 in every window |
 | 4 | Currency | Sets `native_unit_of_measurement` for every monetary sensor under this hub. Defaults to Home Assistant's own currency setting. Fixed after setup |
 | 5 (checkbox off) | Curtailment source | Optional entity picker limited to `input_boolean`, `switch` and `binary_sensor`. Empty means never curtailed; hubs may share one entity. Offered in both tariff modes; skipped entirely with the checkbox on |
 
@@ -92,7 +115,9 @@ Home Assistant forms can't show or hide a field based on another field in the sa
 | --- | --- | --- |
 | General | Import sensor only | Import energy + import value; pure sub-metering, does **not** feed the hub-level splits |
 | Solar | Export sensor only | Production energy only; combined with every other solar device for the hub's `Solar` figure |
-| Battery | Import sensor + export sensor | Charge and discharge energy only; combined with every other battery device for the hub's `BatteryCharge` / `BatteryDischarge` figures |
+| Battery | Import sensor + export sensor, usable capacity | Charge and discharge energy only; combined with every other battery device for the hub's `BatteryCharge` / `BatteryDischarge` figures. Its usable capacity adds to the pool's ceiling |
+
+A battery's **usable capacity** is one field that takes either a number in kWh or an entity reporting it (any energy unit, read at every window close), using Home Assistant's choose selector. It is the energy the battery can hold between its lowest and highest allowed charge: 9 kWh for a 10 kWh battery used from 10% to 100%. Round-trip losses are not subtracted, since the ceiling exists to absorb them; subtracting them would set it below what a full battery delivers, and the last part of every discharge would count at the import price. Too high only makes the average a little slower, so when unsure, round up. Batteries set up before the field existed have no capacity until they are reconfigured, and while any battery's capacity is unknown, the pool has no ceiling.
 
 Both the hub and its devices stay editable after setup:
 
@@ -180,6 +205,7 @@ One rule covers every failure mode here: never guess a value — wait for real d
 | Export price sensor, within the grace period | The grace period becomes the earliest possible lock time, not a deadline — it locks the moment a real reading arrives, even minutes later |
 | Export price sensor, window ready to close but nothing ever locked | Window is not closed — held open, energy still accumulating, until export price locks |
 | Curtailment source | Same as export price: locks on the first real reading and holds the window open until it does. With no source configured, nothing is read and every window counts as uncurtailed |
+| Battery capacity entity | Read at every window close. Unavailable means no ceiling for the pool in that window: the ceiling only trims losses, so skipping it once loses nothing |
 
 This is expected to only happen from an upstream API error or a misconfiguration, not as routine behavior — which is also why it's safe to just wait rather than build more elaborate fallback logic.
 
@@ -193,6 +219,7 @@ Each hub has one store: Home Assistant's `Store` helper, a JSON file under `.sto
 - every energy sensor's snapshot, in kWh
 - the in-progress window: its prices, lock state, grace state and when it opened
 - when the last window closed
+- the battery pool: the kWh in the hub's batteries and what they cost
 
 The engine saves after every change worth surviving a restart (a window opening, a lock, a window closing), with a short delay so bursts of changes become one write. Home Assistant flushes pending writes at shutdown, and the engine writes immediately when it unloads, so a reload never races its own delayed save. Deleting the hub deletes its store.
 
@@ -206,6 +233,7 @@ The configuration can change while the hub is stopped, through an edit, or while
 | Device added | No stored data: its counters start at 0 and its first reading sets the baseline |
 | Device removed | Its stored totals and snapshots are dropped |
 | Device or grid sensor switched to another sensor | The new sensor has no snapshot, so its first reading sets a fresh baseline and contributes 0. The device keeps its totals |
+| Store from before the battery pool existed | The pool starts empty, so battery energy counts at the import price until fresh charging fills it. Totals already counted keep the values they were counted with |
 | Store from before units were read | Its snapshots are in each sensor's own unit, which it didn't save. Each is converted with the unit of that sensor's first good reading, and kept as it was until then, through any number of restarts. Energy that flowed while Home Assistant was down still counts, and a restored or discarded window makes no difference: the old snapshot stays the baseline |
 | Store from before the summaries existed | Summaries are worked out once from the split totals: exactly for money, and for energy from the flows each meter splits into. A store that has any summary keeps what was counted |
 | Window-shaping hub settings changed (including tariff type) | The stored window is discarded and the first-window rules apply. Snapshots of unchanged sensors are kept, so no energy is lost: it lands in the new first window, just as downtime energy does after a restart. All totals are kept |
@@ -252,10 +280,20 @@ General devices don't feed the splits, so they never add any. Adding or removing
 
 Fixed-tariff hubs don't get them: their windows close on a timer, and their prices are the configured tariffs.
 
+One diagnostic doesn't depend on the tariff type: **Battery energy cost**, on every hub with a battery device. It shows the battery pool's average cost per kWh (in the hub's currency per kWh), updated at every window close, and is unknown while the pool is empty.
+
 **Device-level**: each device gets its own simple (not split-aware) counters. This is separate bookkeeping, not an input to the hub-level split math.
 
 - Every device counts energy per sensor: a general device its import, a solar device its production, a battery its charge and its discharge. This deliberately duplicates the source meter: it counts from the start of measurement rather than from whenever the source meter started, which may be long before the integration was added.
-- Only general devices also count value, at the import price. Together with the energy counter, that gives the device's average energy cost, which is useful with dynamic tariffs. Solar and battery devices count no value: they exist to feed the splits, where their value is accounted for.
+- Only general devices also count value: what their energy cost. No meter can tell where a device's energy came from, but the house's mix in that window is known, so a general device pays the house's cost per kWh for the window it used its energy in:
+
+  ```
+  H = GridToHouse + SolarToHouse + BatteryToHouse
+  DeviceValue = E * HouseEnergyUsageCost / H   if H > 0
+  DeviceValue = E * ImportPrice                 otherwise (no mix known: what the grid would charge)
+  ```
+
+  Together with the energy counter, that gives the device's average energy cost. A device that only ran while the house ran on curtailed solar cost nothing. Solar and battery devices count no value: they exist to feed the splits, where their value is accounted for.
 
 Each hub is a Home Assistant device holding the split sensors, and each of its devices is a Home Assistant device of its own, named after it and holding its own counters. Every entity's unique id is its owner's id plus its key: `<config entry id>_<key>` for split sensors, `<subentry id>_<key>` for device counters. Entity ids are generated by Home Assistant from the device and entity names, so they differ between installations; code and tests find entities by unique id instead.
 
@@ -293,7 +331,7 @@ Config-flow validation is two cheap layers:
 2. A one-time live read of every chosen energy and price sensor at setup:
    - An entity ID that doesn't exist at all is a hard error (`unknown_entity`), since that's unambiguously a typo.
    - An entity whose state isn't a number is a hard error (`not_numeric`): it's the wrong kind of entity.
-   - An energy sensor whose unit isn't an energy unit is a hard error (`not_energy_unit`): a power sensor in W, for example, can't be counted (see Units). Price sensors aren't checked for units.
+   - An energy sensor whose unit isn't an energy unit is a hard error (`not_energy_unit`): a power sensor in W, for example, can't be counted (see Units). Price sensors aren't checked for units. A battery's capacity, when it is an entity, is checked like an energy sensor; when it is a number, the form only accepts one above zero.
    - An entity that exists but reads unavailable or unknown at that moment only gets a soft warning, since a briefly-unavailable sensor isn't necessarily misconfigured. Home Assistant form errors always block submission, so the warning is a separate confirmation step that names the sensor and lets the user continue anyway.
 
    Hard errors block finishing setup until the field is corrected.
@@ -304,7 +342,7 @@ Development runs in VS Code against a project virtualenv and in-process tests; n
 
 - Editor: Code OSS with the Python and Ruff extensions. Set `"python.analysis.typeCheckingMode": "standard"` so Pylance flags type mismatches while typing — annotations are not enforced at runtime.
 - Terminal: VS Code's terminal profile is bash. In fish, activate with `source .venv/bin/activate.fish` instead.
-- Environment: `.venv` in the project root, built with `uv` on Python 3.14 (`uv venv --python 3.14 .venv`, then `uv pip install --python .venv -r requirements-dev.txt`). Current Home Assistant requires Python 3.14.2+, and config subentries need Home Assistant 2025.3 or later. With an older Python, pip silently installs an old Home Assistant that lacks them, and the config flow fails to import.
+- Environment: `.venv` in the project root, built with `uv` on Python 3.14 (`uv venv --python 3.14 .venv`, then `uv pip install --python .venv -r requirements-dev.txt`). Current Home Assistant requires Python 3.14.2+, and config subentries need Home Assistant 2025.3 or later, and the battery capacity's choose selector 2026.2, which is the integration's minimum version. With an older Python, pip silently installs an old Home Assistant that lacks them, and the config flow fails to import.
 - Tests, two tiers: `test_calc.py` and `test_units.py` need no running Home Assistant and run in milliseconds. The rest boot an in-process `hass` via `pytest-homeassistant-custom-component` and use `async_fire_time_changed` to skip ahead through timers: `test_window.py` (windows, prices, resilience, logging; plus lifecycle tests on a bare `WindowEngine`), `test_sensor.py` (entities, classes, devices), `test_config_flow.py` (setup, validation, reconfiguring hubs and devices) and `test_persistence.py` (restarts and the restore table). Most drive the integration through `tests/simulator.py`. Expected values are worked out by hand from this doc's formulas, so a failing test means the code disagrees with the plan.
 - CI: `.github/workflows/ci.yml` runs Ruff, the tests and the mutation check on every push, pull request and weekly, plus hassfest and HACS validation. A change is done when CI is green.
 - Releases: pushing a tag `vX.Y.Z` (or `vX.Y.Z-beta.N`) that matches `version` in `manifest.json` runs `.github/workflows/release.yml`: CI on that commit, the version check, a check that `CHANGELOG.md` has a `## [X.Y.Z]` section, then a GitHub release with that section as its notes. A beta tag becomes a pre-release, which HACS only offers with "Show beta versions" on; a final release is refused while its section still says Unreleased. HACS offers releases as updates and shows their notes.

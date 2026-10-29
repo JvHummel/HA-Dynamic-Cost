@@ -62,7 +62,8 @@ async def _priced_window(simulator, import_price: float, export_price: float) ->
 
 
 async def test_single_window_settles(hass, simulator):
-    """One window: solar runs the house, valued at the import price."""
+    """One window: solar runs the house. It saved buying 2 kWh at the import
+    price, and cost the 2 * 0.05 it could have earned by exporting."""
     await simulator.async_setup_hub(solar=[SOLAR])
     await _priced_window(simulator, 0.30, 0.05)
 
@@ -73,7 +74,7 @@ async def test_single_window_settles(hass, simulator):
     assert simulator.get_total("solar_to_house") == pytest.approx(2.0)
     assert simulator.get_total("solar_to_grid") == pytest.approx(0.0)
     assert simulator.get_total("solar_to_house_savings") == pytest.approx(0.60)
-    assert simulator.get_total("house_energy_usage_cost") == pytest.approx(0.60)
+    assert simulator.get_total("house_energy_usage_cost") == pytest.approx(0.10)
     assert simulator.get_total("grid_import_cost") == pytest.approx(0.0)
 # end test_single_window_settles
 
@@ -189,7 +190,8 @@ async def test_energy_counter_reset_counts_as_zero(hass, simulator):
 
 
 async def test_general_device_does_not_feed_splits(hass, simulator):
-    """General devices are sub-metering only, valued at the import price."""
+    """General devices are sub-metering only. All the house's energy came
+    from the grid here, so the device pays the import price."""
     await simulator.async_setup_hub(general=[GENERAL])
     await _priced_window(simulator, 0.30, 0.05)
 
@@ -203,6 +205,98 @@ async def test_general_device_does_not_feed_splits(hass, simulator):
     assert simulator.get_total("import_energy", device=general) == pytest.approx(1.0)
     assert simulator.get_total("import_value", device=general) == pytest.approx(0.30)
 # end test_general_device_does_not_feed_splits
+
+
+async def test_device_on_curtailed_solar_costs_nothing(hass, simulator):
+    """Solar covers the house, the general device included. Curtailed, that
+    solar is free; the next window, uncurtailed, it costs the export price
+    it could have earned."""
+    await simulator.async_setup_hub(
+        solar=[SOLAR], general=[GENERAL], curtailment=True
+    )
+    simulator.set_curtailed(True)
+    await _priced_window(simulator, 0.30, 0.10)
+
+    simulator.advance_meter(SOLAR, 2.0)
+    simulator.advance_meter(GENERAL, 1.5)
+    simulator.set_curtailed(False)                   # from the next window on
+    await simulator.async_advance_window()
+    general = "General 1"
+    assert simulator.get_total("import_value", device=general) == pytest.approx(0.0)
+    assert simulator.get_total("house_energy_usage_cost") == pytest.approx(0.0)
+    assert simulator.get_total("solar_to_house_savings") == pytest.approx(0.60)
+
+    simulator.advance_meter(SOLAR, 2.0)
+    simulator.advance_meter(GENERAL, 1.5)
+    await simulator.async_advance_window()
+    assert simulator.get_total("import_value", device=general) == pytest.approx(0.15)
+    assert simulator.get_total("house_energy_usage_cost") == pytest.approx(0.20)
+# end test_device_on_curtailed_solar_costs_nothing
+
+
+async def test_device_on_solar_is_free_with_the_checkbox(hass, simulator):
+    await simulator.async_setup_hub(
+        solar=[SOLAR], general=[GENERAL], treat_solar_as_free=True
+    )
+    await _priced_window(simulator, 0.30, 0.10)
+
+    simulator.advance_meter(SOLAR, 2.0)
+    simulator.advance_meter(GENERAL, 1.0)
+    await simulator.async_advance_window()
+
+    general = "General 1"
+    assert simulator.get_total("import_value", device=general) == pytest.approx(0.0)
+# end test_device_on_solar_is_free_with_the_checkbox
+
+
+async def test_battery_energy_costs_what_charging_it_cost(hass, simulator):
+    """4 kWh of solar into the battery at export price 0.05; later the battery
+    runs the house at import price 0.40. Its energy cost 0.05 a kWh."""
+    await simulator.async_setup_hub(
+        solar=[SOLAR], batteries=[(CHARGE, DISCHARGE, 10.0)], general=[GENERAL]
+    )
+    await _priced_window(simulator, 0.30, 0.05)
+    simulator.advance_meter(SOLAR, 4.0)
+    simulator.advance_meter(CHARGE, 4.0)
+    await _priced_window(simulator, 0.40, 0.05)
+
+    simulator.advance_meter(DISCHARGE, 2.0)
+    simulator.advance_meter(GENERAL, 1.0)
+    await simulator.async_advance_window()
+
+    general = simulator.get_total("import_value", device="General 1")
+    assert general == pytest.approx(0.05)
+    assert simulator.get_total("house_energy_usage_cost") == pytest.approx(0.10)
+    assert float(simulator.hub_state("battery_energy_cost")) == pytest.approx(0.05)
+# end test_battery_energy_costs_what_charging_it_cost
+
+
+@pytest.mark.parametrize(
+    ("capacity_state", "kwh_left"),
+    [("2000", 2.0), ("unavailable", 3.0)],
+)
+async def test_capacity_entity_sets_the_ceiling(
+    hass, simulator, capacity_state, kwh_left
+):
+    """A capacity entity in Wh is converted: 2000 Wh trims 3 kWh charged to
+    2, keeping their cost, so each costs 1.5x as much. Unavailable: no
+    ceiling this window."""
+    hass.states.async_set(
+        "sensor.sim_capacity", capacity_state,
+        {"device_class": "energy_storage", "unit_of_measurement": "Wh"},
+    )
+    await simulator.async_setup_hub(
+        batteries=[(CHARGE, DISCHARGE, "sensor.sim_capacity")]
+    )
+    await _priced_window(simulator, 0.20, 0.05)
+    simulator.advance_meter(GRID_IMPORT, 3.0)
+    simulator.advance_meter(CHARGE, 3.0)
+    await simulator.async_advance_window()
+
+    assert float(simulator.hub_state("battery_energy_cost")) == pytest.approx(
+        0.60 / kwh_left
+    )
+# end test_capacity_entity_sets_the_ceiling
 
 
 async def test_solar_and_battery_devices_aggregate(hass, simulator):

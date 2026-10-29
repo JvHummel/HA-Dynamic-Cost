@@ -37,11 +37,11 @@
       "options": {
         "title": "Accounting options",
         "data": {
-          "treat_solar_as_free": "Treat solar to battery energy as free",
+          "treat_solar_as_free": "Treat solar as free",
           "currency": "Currency"
         },
         "data_description": {
-          "treat_solar_as_free": "When on, solar energy stored in the battery is never valued at the export price."
+          "treat_solar_as_free": "When on, solar never costs anything: not when stored in the battery, and not when the house uses it. When off, solar costs the export price it could have earned, except while curtailed."
         }
       },
       "confirm_unavailable": {
@@ -54,7 +54,7 @@
           "curtailment_source": "Curtailment source"
         },
         "data_description": {
-          "curtailment_source": "Optional. A switch or boolean that is on while your solar output is being curtailed; solar stored during those windows counts as free. Leave empty if you never curtail."
+          "curtailment_source": "Optional. A switch or boolean that is on while your solar output is being curtailed; during those windows, solar counts as free for the battery, the house and its devices. Leave empty if you never curtail."
         }
       },
       "reconfigure": {
@@ -159,7 +159,11 @@
           "data": {
             "device_name": "Name",
             "import_sensor": "Energy charged (kWh)",
-            "export_sensor": "Energy discharged (kWh)"
+            "export_sensor": "Energy discharged (kWh)",
+            "capacity": "Usable capacity"
+          },
+          "data_description": {
+            "capacity": "The energy the battery can hold between its lowest and highest allowed charge: 9 kWh for a 10 kWh battery used from 10% to 100%. Don't subtract round-trip losses. When unsure, round up."
           }
         },
         "reconfigure": {
@@ -167,7 +171,11 @@
           "data": {
             "device_name": "Name",
             "import_sensor": "Energy charged (kWh)",
-            "export_sensor": "Energy discharged (kWh)"
+            "export_sensor": "Energy discharged (kWh)",
+            "capacity": "Usable capacity"
+          },
+          "data_description": {
+            "capacity": "The energy the battery can hold between its lowest and highest allowed charge: 9 kWh for a 10 kWh battery used from 10% to 100%. Don't subtract round-trip losses. When unsure, round up."
           }
         },
         "confirm_unavailable": {
@@ -190,6 +198,12 @@
       "options": {
         "fixed": "Fixed",
         "dynamic": "Dynamic"
+      }
+    },
+    "capacity": {
+      "choices": {
+        "number": "A number (kWh)",
+        "entity": "From an entity"
       }
     }
   },
@@ -331,6 +345,9 @@
       },
       "battery_net_savings": {
         "name": "Battery net savings"
+      },
+      "battery_energy_cost": {
+        "name": "Battery energy cost"
       }
     }
   }

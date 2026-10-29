@@ -4,6 +4,47 @@ Every release of Dynamic Cost, newest first. Each version's section is
 published as the release notes on GitHub, which HACS shows when it offers
 the update.
 
+## [0.4.0] - Unreleased
+
+### Added
+- **What a general device's energy really cost.** *Energy cost* used to be
+  the device's energy at the import price, even when the house ran on solar
+  or the battery. Now a device pays the house's cost per kWh for each window:
+  grid energy at the import price, solar at the export price it could have
+  earned, battery energy at what charging it cost. A device running on
+  curtailed solar costs nothing.
+- **Battery energy cost.** A diagnostic sensor on hubs with a battery: what
+  a kWh in the battery cost on average. Charging from the grid adds energy at
+  the import price, charging from solar at the export price (or nothing when
+  solar is free).
+- **Usable capacity for batteries.** A number in kWh, or an entity that
+  reports it. It keeps battery losses from making *Battery energy cost* lag
+  behind. Enter what the battery can hold between its lowest and highest
+  allowed charge, without subtracting round-trip losses; when unsure, round
+  up.
+- **README: Settings, and How the splits are calculated.** What every setting
+  does to the numbers, and every split's formula.
+
+### Changed
+- **House energy usage cost is what the house's energy really cost.** It used
+  to value solar and battery energy at the import price. Now solar counts at
+  the export price (or nothing when it's free) and battery energy at what
+  charging it cost, the same way as for devices.
+- **"Treat solar to battery energy as free" is now "Treat solar as free".**
+  It used to apply only to solar stored in the battery; now solar costs
+  nothing anywhere, including what the house and its devices use. Curtailed
+  windows work the same way. *Solar to house savings* and *Solar to grid
+  profit* don't change: they're what solar saved and earned.
+- **Requires Home Assistant 2026.2 or later**, for the capacity field.
+
+### Upgrading
+- Totals counted so far keep their values; only new windows count the new
+  way.
+- Reconfigure each battery to enter its usable capacity. Until every battery
+  has one, battery losses aren't trimmed.
+- The battery's cost average starts empty, so energy already in the battery
+  counts at the import price until it has been recharged.
+
 ## [0.3.0] - 2026-10-26
 
 ### Added

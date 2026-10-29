@@ -12,10 +12,11 @@ from unittest.mock import patch
 import pytest
 import voluptuous as vol
 from homeassistant.config_entries import SOURCE_USER
-from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.dynamic_cost.const import (
+    CONF_CAPACITY,
     CONF_CURRENCY,
     CONF_CURTAILMENT_SOURCE,
     CONF_DEVICE_NAME,
@@ -54,6 +55,7 @@ TEXT = "sensor.cf_not_a_number"
 WATTS = "sensor.cf_power"
 WH = "sensor.cf_meter_wh"
 NO_UNIT = "sensor.cf_meter_no_unit"
+STORED = "sensor.cf_battery_capacity"
 
 GRID = {CONF_GRID_IMPORT_SENSOR: GRID_IN, CONF_GRID_EXPORT_SENSOR: GRID_OUT}
 PRICES = {
@@ -84,6 +86,9 @@ def world(hass):
     hass.states.async_set(WATTS, "750", {"unit_of_measurement": "W"})
     hass.states.async_set(WH, "100000", {**energy, "unit_of_measurement": "Wh"})
     hass.states.async_set(NO_UNIT, "100.0", {"device_class": "energy"})
+    hass.states.async_set(
+        STORED, "9000", {"device_class": "energy_storage", "unit_of_measurement": "Wh"}
+    )
     hass.states.async_set(
         f"{IMPORT_PRICE}_mwh", "250", {"unit_of_measurement": "EUR/MWh"}
     )
@@ -421,7 +426,9 @@ async def test_reconfigure_reloads_hub_once(hass, simulator):
 DEVICE_SENSORS = {
     DeviceType.GENERAL: {CONF_IMPORT_SENSOR: METER_A},
     DeviceType.SOLAR: {CONF_EXPORT_SENSOR: METER_A},
-    DeviceType.BATTERY: {CONF_IMPORT_SENSOR: METER_A, CONF_EXPORT_SENSOR: METER_B},
+    DeviceType.BATTERY: {
+        CONF_IMPORT_SENSOR: METER_A, CONF_EXPORT_SENSOR: METER_B, CONF_CAPACITY: 9.0
+    },
 }
 
 
@@ -463,6 +470,85 @@ async def test_add_device(hass, no_setup, hub, device_type):
     assert subentry.subentry_type == device_type
     assert dict(subentry.data) == {CONF_DEVICE_NAME: "Thing", **sensors}
 # end test_add_device
+
+
+BATTERY = {
+    CONF_DEVICE_NAME: "Garage", CONF_IMPORT_SENSOR: METER_A, CONF_EXPORT_SENSOR: METER_B
+}
+
+
+@pytest.mark.parametrize(
+    ("capacity", "saved"),
+    [
+        (9.0, 9.0),
+        (STORED, STORED),
+        # What the frontend sends for a choose selector: which choice is
+        # active, and the value per choice. Only the active one is saved.
+        ({"active_choice": "number", "number": 9.5, "entity": STORED}, 9.5),
+        ({"active_choice": "entity", "entity": STORED, "number": 9.5}, STORED),
+    ],
+)
+async def test_battery_capacity_is_a_number_or_an_entity(
+    hass, no_setup, hub, capacity, saved
+):
+    """Usable capacity is one field: a number in kWh, or an entity."""
+    result = await _start_device(hass, hub, DeviceType.BATTERY)
+    result = await _submit_device(hass, result, {**BATTERY, CONF_CAPACITY: capacity})
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    [subentry] = hub.subentries.values()
+    assert subentry.data[CONF_CAPACITY] == saved
+# end test_battery_capacity_is_a_number_or_an_entity
+
+
+@pytest.mark.parametrize(
+    ("capacity", "error"),
+    [(MISSING, "unknown_entity"), (TEXT, "not_numeric"), (WATTS, "not_energy_unit")],
+)
+async def test_battery_capacity_entity_is_validated(
+    hass, no_setup, hub, capacity, error
+):
+    """A capacity entity gets the same checks as the energy sensors."""
+    result = await _start_device(hass, hub, DeviceType.BATTERY)
+    result = await _submit_device(hass, result, {**BATTERY, CONF_CAPACITY: capacity})
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {CONF_CAPACITY: error}
+# end test_battery_capacity_entity_is_validated
+
+
+async def test_battery_capacity_must_be_above_zero(hass, no_setup, hub):
+    result = await _start_device(hass, hub, DeviceType.BATTERY)
+    with pytest.raises(InvalidData):
+        await _submit_device(hass, result, {**BATTERY, CONF_CAPACITY: 0})
+    # end with
+# end test_battery_capacity_must_be_above_zero
+
+
+async def test_reconfigure_battery_prefills_and_changes_its_capacity(hass, no_setup):
+    """A battery from before the field existed can add it on reconfigure;
+    a saved capacity is shown, and can switch to an entity."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Hub",
+        data=DYNAMIC_HUB,
+        subentries_data=[{
+            "subentry_type": DeviceType.BATTERY,
+            "title": "Garage",
+            "data": {**BATTERY, CONF_CAPACITY: 9.0},
+            "unique_id": None,
+        }],
+    )
+    entry.add_to_hass(hass)
+    [subentry_id] = entry.subentries
+
+    result = await entry.start_subentry_reconfigure_flow(hass, subentry_id)
+    assert _prefill(result, CONF_CAPACITY) == 9.0
+    result = await _submit_device(hass, result, {**BATTERY, CONF_CAPACITY: STORED})
+
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.subentries[subentry_id].data[CONF_CAPACITY] == STORED
+# end test_reconfigure_battery_prefills_and_changes_its_capacity
 
 
 async def test_add_device_validates_its_sensor(hass, no_setup, hub):

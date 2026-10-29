@@ -37,6 +37,9 @@ CONF_DEVICE_TYPE: Final = "device_type"
 CONF_DEVICE_NAME: Final = "device_name"
 CONF_IMPORT_SENSOR: Final = "import_sensor"
 CONF_EXPORT_SENSOR: Final = "export_sensor"
+# Batteries only: usable capacity, either a number in kWh or an entity id
+# whose state reports it (plan: config flow, usable capacity).
+CONF_CAPACITY: Final = "capacity"
 
 
 class TariffMode(StrEnum):

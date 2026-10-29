@@ -80,7 +80,9 @@ class Device:
 
     Built in __init__.py from entry.subentries. Which sensor fields are set
     depends on device_type: GENERAL has only import_sensor, SOLAR only
-    export_sensor, BATTERY both.
+    export_sensor, BATTERY both. Only a BATTERY has a capacity: a number in
+    kWh, an entity id reporting it, or None when it was set up before the
+    field existed.
     """
 
     subentry_id: str
@@ -88,6 +90,7 @@ class Device:
     name: str
     import_sensor: str | None = None
     export_sensor: str | None = None
+    capacity: float | str | None = None
 # end Device
 
 
@@ -181,6 +184,9 @@ class WindowEngine:
             hass, STORAGE_VERSION, storage_key(entry_id)
         )
         self._last_closed_at: datetime | None = None
+        # What the energy in the hub's batteries cost (plan: calculation
+        # engine, battery pool). Carried from window to window and saved.
+        self._pool = calc.BatteryPool()
         # Dynamic mode's stale-window warning (plan: logging). One timer runs
         # at a time, counting from when the open window opened, or from hub
         # start while there's no window yet. _overdue is True once it fired,
@@ -212,6 +218,41 @@ class WindowEngine:
         # end if
         return self._config.get(CONF_CURTAILMENT_SOURCE)
     # end _curtailment_source
+
+    @property
+    def _has_battery(self) -> bool:
+        return any(device.device_type == DeviceType.BATTERY for device in self._devices)
+    # end _has_battery
+
+    def _combined_capacity(self) -> float | None:
+        """The batteries' combined usable capacity in kWh, or None if unknown.
+
+        Unknown when any battery has no capacity (set up before the field
+        existed) or its capacity entity can't be read right now. Then the
+        pool has no ceiling for this window, which only skips trimming
+        losses once (plan: resilience).
+        """
+        total = 0.0
+        for device in self._devices:
+            if device.device_type != DeviceType.BATTERY:
+                continue
+            # end if
+
+            capacity = device.capacity
+            if isinstance(capacity, str):
+                value = self._read_entity_state(capacity)
+                if value is None:
+                    return None
+                # end if
+                capacity = units.energy_to_kwh(value, self._unit(capacity))
+            # end if
+            if capacity is None:
+                return None
+            # end if
+            total += capacity
+        # end for
+        return total
+    # end _combined_capacity
 
     def _window_settings(self) -> dict[str, Any]:
         return {key: self._config.get(key) for key in WINDOW_SETTINGS_KEYS}
@@ -527,6 +568,13 @@ class WindowEngine:
             self._last_closed_at = dt_util.parse_datetime(data["last_closed_at"])
         # end if
 
+        # Stores from before the pool existed start with an empty one. A hub
+        # without batteries has nothing left to discharge it, so drops it.
+        pool = data.get("battery_pool")
+        if pool and self._has_battery:
+            self._pool = calc.BatteryPool(kwh=pool["kwh"], cost=pool["cost"])
+        # end if
+
         window = data.get("window")
         if not window or data.get("settings") != self._window_settings():
             return False
@@ -676,6 +724,7 @@ class WindowEngine:
             },
             "window": window,
             "settings": self._window_settings(),
+            "battery_pool": {"kwh": self._pool.kwh, "cost": self._pool.cost},
         }
     # end _data_to_save
 
@@ -1043,12 +1092,21 @@ class WindowEngine:
         )
 
         splits = calc.calculate_energy_splits(energy)
+        self._pool, battery_rate = calc.settle_battery_pool(
+            self._pool,
+            splits,
+            import_price=window.import_price,
+            export_price=window.locked_export_price,
+            treat_solar_as_free=treat_solar_as_free,
+            capacity=self._combined_capacity(),
+        )
         money = calc.calculate_financial_splits(
             splits,
             energy,
             import_price=window.import_price,
             export_price=window.locked_export_price,
             treat_solar_as_free=treat_solar_as_free,
+            battery_rate=battery_rate,
         )
 
         for key in ENERGY_SPLIT_KEYS:
@@ -1063,7 +1121,8 @@ class WindowEngine:
         # end for
 
         # Device counters: energy per sensor for every device, value only for
-        # general devices (plan: entities, device-level).
+        # general devices, at the house's cost per kWh for this window (plan:
+        # entities, device-level).
         for device in self._devices:
             if device.import_sensor:
                 energy_in = deltas[device.import_sensor]
@@ -1071,7 +1130,9 @@ class WindowEngine:
                 if device.device_type == DeviceType.GENERAL:
                     self._add(
                         unique_id(device.subentry_id, "import_value"),
-                        calc.calculate_device_value(energy_in, window.import_price),
+                        calc.calculate_device_value(
+                            energy_in, splits, money, window.import_price
+                        ),
                     )
                 # end if
             # end if
@@ -1195,6 +1256,12 @@ class WindowEngine:
         # end if
         return LockState.TENTATIVE
     # end _lock_state
+
+    @property
+    def battery_energy_cost(self) -> float | None:
+        """What a kWh in the batteries cost on average; None while empty."""
+        return self._pool.average_cost
+    # end battery_energy_cost
 
     @property
     def window_opened_at(self) -> datetime | None:

@@ -15,6 +15,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .const import (
+    CONF_CAPACITY,
     CONF_DEVICE_NAME,
     CONF_EXPORT_SENSOR,
     CONF_IMPORT_SENSOR,
@@ -46,6 +47,7 @@ async def async_setup_entry(
             name=subentry.data.get(CONF_DEVICE_NAME, subentry.title),
             import_sensor=subentry.data.get(CONF_IMPORT_SENSOR),
             export_sensor=subentry.data.get(CONF_EXPORT_SENSOR),
+            capacity=subentry.data.get(CONF_CAPACITY),
         )
         for subentry in entry.subentries.values()
     ]

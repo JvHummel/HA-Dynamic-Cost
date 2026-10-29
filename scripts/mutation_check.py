@@ -6,6 +6,8 @@ Copies the project into a temporary directory, runs the whole suite there
 (it must pass), then plants each bug below one at a time; every one must make
 the suite fail. A bug that slips through means a test can't fail when it
 should. STALE means a planting point no longer matches the code: update it.
+BROKEN means the planted bug isn't valid Python, so it would fail every test
+without proving anything: fix its replacement text.
 
 Nothing in the project itself is touched.
 """
@@ -25,9 +27,75 @@ WINDOW = PKG + "window.py"
 FLOW = PKG + "config_flow.py"
 SENSOR = PKG + "sensor.py"
 UNITS = PKG + "units.py"
+CALC = PKG + "calc.py"
 
 # name: (file, exact original text, replacement)
 MUTANTS: dict[str, tuple[str, str, str]] = {
+    "house's solar part at the import price again": (
+        CALC,
+        "splits.solar_to_house * solar_rate   +",
+        "splits.solar_to_house * import_price +",
+    ),
+    "house's battery part at the import price": (
+        CALC,
+        "splits.battery_to_house * battery_rate)",
+        "splits.battery_to_house * import_price)",
+    ),
+    "device valued at the import price": (
+        CALC,
+        "return energy_delta * money.house_energy_usage_cost / house",
+        "return energy_delta * import_price",
+    ),
+    "device without a house mix valued at nothing": (
+        CALC,
+        "    # end if\n    return energy_delta * import_price\n# end calculate_device_value",
+        "    # end if\n    return 0.0\n# end calculate_device_value",
+    ),
+    "solar never free": (
+        CALC,
+        "    if treat_solar_as_free:\n        return 0.0",
+        "    if False:\n        return 0.0",
+    ),
+    "ceiling drops the losses' cost too": (
+        CALC,
+        "kwh = capacity            # cost stays",
+        "kwh, cost = capacity, cost * capacity / kwh  # cost stays",
+    ),
+    "no ceiling at all": (
+        CALC,
+        "elif capacity is not None and kwh > capacity:",
+        "elif False:",
+    ),
+    "discharge beyond the pool left out": (
+        CALC,
+        "+ (discharged - known) * import_price) / discharged",
+        "+ 0.0) / discharged",
+    ),
+    "capacity entity not converted to kWh": (
+        WINDOW,
+        "capacity = units.energy_to_kwh(value, self._unit(capacity))",
+        "capacity = value",
+    ),
+    "battery pool not saved": (
+        WINDOW,
+        '"battery_pool": {"kwh": self._pool.kwh, "cost": self._pool.cost},',
+        '"battery_pool": None,',
+    ),
+    "battery pool kept without batteries": (
+        WINDOW,
+        "if pool and self._has_battery:",
+        "if pool:",
+    ),
+    "capacity entity not validated at setup": (
+        FLOW,
+        "sensors[CONF_CAPACITY] = user_input[CONF_CAPACITY]",
+        "pass",
+    ),
+    "battery energy cost on hubs without a battery": (
+        SENSOR,
+        "    if DeviceType.BATTERY in device_types:\n        hub_entities.append(",
+        "    if True:\n        hub_entities.append(",
+    ),
     "energy read without converting to kWh": (
         WINDOW,
         "kwh = units.energy_to_kwh(value, unit)",
@@ -80,8 +148,8 @@ MUTANTS: dict[str, tuple[str, str, str]] = {
     ),
     "device sensors not unit-checked at setup": (
         FLOW,
-        "    CONF_IMPORT_SENSOR,\n    CONF_EXPORT_SENSOR,\n)\n\nTARIFF_MODE",
-        ")\n\nTARIFF_MODE",
+        "    CONF_IMPORT_SENSOR,\n    CONF_EXPORT_SENSOR,\n    CONF_CAPACITY,\n)",
+        "    CONF_CAPACITY,\n)",
     ),
     "negative delta not clamped (counter reset)": (
         WINDOW,
@@ -353,13 +421,24 @@ def main() -> int:
                 problems += 1
                 continue
             # end if
-            target.write_text(text.replace(original, replacement))
+            mutated = text.replace(original, replacement)
+            # A planted bug that isn't valid Python fails every test without
+            # proving anything about them.
+            try:
+                compile(mutated, path, "exec")
+            except SyntaxError as error:
+                print(f"BROKEN  {name}: not valid Python ({error.msg})")
+                problems += 1
+                continue
+            # end try
+            target.write_text(mutated)
 
             result = run_pytest(work, "-x")
+            # ERROR: a test that failed in its teardown, e.g. a leftover timer.
             failed = [
                 line.split("::")[-1].split(" ")[0]
                 for line in result.stdout.splitlines()
-                if line.startswith("FAILED")
+                if line.startswith(("FAILED", "ERROR"))
             ]
             caught = result.returncode != 0
             problems += not caught
