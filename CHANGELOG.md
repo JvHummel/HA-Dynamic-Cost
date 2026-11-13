@@ -4,7 +4,7 @@ Every release of Dynamic Cost, newest first. Each version's section is
 published as the release notes on GitHub, which HACS shows when it offers
 the update.
 
-## [0.4.0] - Unreleased
+## [0.4.0] - 2026-11-13
 
 ### Added
 - **What a general device's energy really cost.** *Energy cost* used to be
